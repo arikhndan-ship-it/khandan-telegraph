@@ -21,21 +21,19 @@ jobs:
           channel: stable
           architecture: x64
 
-      - name: Configure App Store Connect API Key
-        uses: apple-actions/setup-appstore-connect-api-key@v2
-        with:
-          api-key: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
-          key-id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          issuer-id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      - name: Write App Store Connect API Key
+        run: |
+          mkdir -p ~/private_keys
+          echo "${{ secrets.APP_STORE_CONNECT_API_KEY }}" > ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+          echo "API key written to ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8"
 
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Build IPA for App Store
+      - name: Build and sign IPA
         run: flutter build ipa --release --export-method app-store --build-number=${{ github.run_number }}
         env:
-          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
-          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
 
       - name: Upload IPA
