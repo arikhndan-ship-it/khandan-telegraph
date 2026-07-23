@@ -1,1 +1,4 @@
 #include "Generated.xcconfig"
+
+// Custom settings
+// DEVELOPMENT_TEAM = YOUR_TEAM_ID_HERE
