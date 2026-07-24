@@ -9,6 +9,8 @@ jobs:
     defaults:
       run:
         working-directory: mobile
+    env:
+      FLUTTER_FRONTEND_SERVER_MEMORY: 3072
 
     steps:
       - uses: actions/checkout@v4
@@ -170,9 +172,16 @@ jobs:
       - name: Build IPA
         run: |
           flutter pub get
-          # Increase Dart frontend server memory to avoid OOM during kernel_snapshot
-          export FLUTTER_FRONTEND_SERVER_MEMORY=3072
-          flutter build ipa --release --export-method app-store --build-number=24
+          # Free memory before compiling - kill unnecessary processes
+          pkill -f "Simulator" 2>/dev/null || true
+          pkill -f "CoreLocation" 2>/dev/null || true
+          pkill -f dart 2>/dev/null || true
+          sleep 2
+          echo "Memory before build:"
+          vm_stat | head -3
+          flutter build ipa --release \
+            --export-method app-store \
+            --build-number=25
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
