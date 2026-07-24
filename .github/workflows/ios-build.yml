@@ -167,10 +167,16 @@ jobs:
               f.write(content)
           print("Done")
 
+      - name: Configure swap (prevent memory crash)
+        run: |
+          sudo nvram boot-args="vm_compressor=2" 2>/dev/null || true
+          sudo memory_pressure || true
+          sysctl vm.swapusage || true
+
       - name: Build IPA
         run: |
           flutter pub get
-          flutter build ipa --release --export-method app-store --build-number=21
+          flutter build ipa --release --export-method app-store --build-number=22
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
