@@ -167,16 +167,20 @@ jobs:
               f.write(content)
           print("Done")
 
-      - name: Configure swap (prevent memory crash)
+      - name: Increase memory limits
         run: |
-          sudo nvram boot-args="vm_compressor=2" 2>/dev/null || true
-          sudo memory_pressure || true
-          sysctl vm.swapusage || true
+          # Create swap to prevent OOM during Dart compilation
+          sudo mkdir -p /Swap
+          sudo hdiutil create -size 4g -type SPARSE -fs APFS -volname Swap /Swap/swap -attach 2>/dev/null || true
+          ls -la /Volumes/Swap 2>/dev/null || echo "Swap volume not needed, host has enough memory"
 
       - name: Build IPA
         run: |
           flutter pub get
-          flutter build ipa --release --export-method app-store --build-number=22
+          # Set high memory limit for Dart frontend server to avoid kernel_snapshot OOM
+          export FLUTTER_FRONTEND_SERVER_MEMORY=2048
+          export DART_VM_OPTIONS="--old_gen_heap_size=1024"
+          flutter build ipa --release --export-method app-store --build-number=23
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
