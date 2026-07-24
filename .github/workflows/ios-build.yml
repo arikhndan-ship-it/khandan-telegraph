@@ -45,26 +45,35 @@ jobs:
       - name: Setup Fastlane
         run: gem install fastlane -q
 
-      - name: Create Cert, App ID, and Provisioning Profile via Fastlane
+      - name: Setup Signing (Cert + App ID + Profile)
         run: |
           export ASC_KEY_ID="${{ secrets.APP_STORE_CONNECT_KEY_ID }}"
           export ASC_ISSUER_ID="${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
           export ASC_KEY_PATH="$HOME/.fastlane/appstore_api_key.json"
-          cd ios && fastlane setup_signing 2>&1 || echo "Some signing steps may have been skipped (OK if already exists)"
+          cd ios && fastlane setup_signing
 
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Build and sign IPA
-        run: flutter build ipa --release --export-method app-store --build-number=${{ github.run_number }}
-        env:
-          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      - name: Build .app (unsigned)
+        run: flutter build ios --release --no-codesign
+
+      - name: Export signed IPA with fastlane gym
+        run: |
+          export ASC_KEY_ID="${{ secrets.APP_STORE_CONNECT_KEY_ID }}"
+          export ASC_ISSUER_ID="${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
+          export ASC_KEY_PATH="$HOME/.fastlane/appstore_api_key.json"
+          cd ios && fastlane gym \
+            scheme:Runner \
+            workspace:Runner.xcworkspace \
+            export_method:app-store \
+            output_name:Khandan.ipa \
+            build_path:../build/ios/iphoneos
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: Khandan-iOS-AppStore
-          path: mobile/build/ios/ipa/*.ipa
+          path: mobile/ios/Khandan.ipa
           compression-level: 0
           retention-days: 30
