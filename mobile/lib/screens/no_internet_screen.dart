@@ -139,84 +139,9 @@ class _NoInternetScreenState extends State<NoInternetScreen> {
                             ),
                     ),
                   ),
-                  const SizedBox(height: 16),
-
-                  // Language toggle
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _LangButton(
-                          label: 'English',
-                          isSelected: Localizations.localeOf(context).languageCode == 'en',
-                          onTap: () => _changeLocale(const Locale('en')),
-                        ),
-                        const SizedBox(width: 12),
-                        _LangButton(
-                          label: 'کوردی',
-                          isSelected: Localizations.localeOf(context).languageCode == 'ckb',
-                          onTap: () => _changeLocale(const Locale('ckb')),
-                        ),
-                      ],
-                    ),
-                  ),
                 ],
               ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _changeLocale(Locale locale) {
-    // We need to rebuild the MaterialApp with new locale
-    // The parent KhandanApp will handle this
-    KhandanAppState? appState;
-    try {
-      appState = KhandanApp.of(context);
-    } catch (_) {}
-    if (appState != null) {
-      appState.setLocale(locale);
-    }
-  }
-}
-
-class _LangButton extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _LangButton({
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? AppTheme.primaryColor.withValues(alpha: 0.2) : Colors.transparent,
-          border: Border.all(
-            color: isSelected ? AppTheme.primaryColor : AppTheme.textMuted.withValues(alpha: 0.3),
-          ),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: isSelected ? AppTheme.primaryColor : AppTheme.textMuted,
           ),
         ),
       ),
