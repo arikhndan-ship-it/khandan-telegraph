@@ -51,9 +51,13 @@ jobs:
           fastlane run cert development:false output_path:/tmp/certs api_key_path:"$API_KEY_PATH"
           echo "Certificate check done"
 
-      - name: Create/Download Provisioning Profile
+      - name: Create App ID and Provisioning Profile
         run: |
           API_KEY_PATH="$HOME/.fastlane/appstore_api_key.json"
+          # Create the App ID (bundle identifier) on Apple Developer Portal
+          fastlane run produce username:"" api_key_path:"$API_KEY_PATH" app_identifier:com.khandan.telegraph app_name:Khandan skip_itc:true
+          echo "App ID created"
+          # Now create the provisioning profile
           fastlane run sigh app_identifier:com.khandan.telegraph username:"" api_key_path:"$API_KEY_PATH" force:true
           echo "Profile downloaded"
 
