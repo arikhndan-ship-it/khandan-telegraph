@@ -27,7 +27,6 @@ jobs:
           import os, json
           key = os.environ["API_KEY"]
           key_id = os.environ["KEY_ID"]
-          issuer_id = os.environ["ISSUER_ID"]
           
           os.makedirs(os.path.expanduser("~/private_keys"), exist_ok=True)
           with open(os.path.expanduser(f"~/private_keys/AuthKey_{key_id}.p8"), "w") as f:
@@ -35,7 +34,7 @@ jobs:
           
           os.makedirs(os.path.expanduser("~/.fastlane"), exist_ok=True)
           with open(os.path.expanduser("~/.fastlane/appstore_api_key.json"), "w") as f:
-              json.dump({"key_id": key_id, "issuer_id": issuer_id, "key": key, "in_house": False}, f)
+              json.dump({"key_id": key_id, "issuer_id": os.environ["ISSUER_ID"], "key": key, "in_house": False}, f)
           print("API key files written")
         env:
           API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
@@ -45,35 +44,25 @@ jobs:
       - name: Setup Fastlane
         run: gem install fastlane -q
 
-      - name: Setup Signing (Cert + App ID + Profile)
+      - name: Download Cert + Provisioning Profile
         run: |
-          export ASC_KEY_ID="${{ secrets.APP_STORE_CONNECT_KEY_ID }}"
-          export ASC_ISSUER_ID="${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
-          export ASC_KEY_PATH="$HOME/.fastlane/appstore_api_key.json"
-          cd ios && fastlane setup_signing
+          KEY_PATH="$HOME/.fastlane/appstore_api_key.json"
+          fastlane run cert development:false output_path:/tmp/certs api_key_path:"$KEY_PATH"
+          fastlane run sigh app_identifier:com.khandan.telegraph force:true api_key_path:"$KEY_PATH"
 
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Build .app (unsigned)
-        run: flutter build ios --release --no-codesign
-
-      - name: Export signed IPA with fastlane gym
-        run: |
-          export ASC_KEY_ID="${{ secrets.APP_STORE_CONNECT_KEY_ID }}"
-          export ASC_ISSUER_ID="${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
-          export ASC_KEY_PATH="$HOME/.fastlane/appstore_api_key.json"
-          cd ios && fastlane gym \
-            scheme:Runner \
-            workspace:Runner.xcworkspace \
-            export_method:app-store \
-            output_name:Khandan.ipa \
-            build_path:../build/ios/iphoneos
+      - name: Build and sign IPA
+        run: flutter build ipa --release --export-method app-store --build-number=${{ github.run_number }}
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: Khandan-iOS-AppStore
-          path: mobile/ios/Khandan.ipa
+          path: mobile/build/ios/ipa/*.ipa
           compression-level: 0
           retention-days: 30
