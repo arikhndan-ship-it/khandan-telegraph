@@ -47,12 +47,14 @@ jobs:
 
       - name: Create Distribution Certificate (if needed)
         run: |
-          fastlane run cert development:false output_path:/tmp/certs api_key_path:~/.fastlane/appstore_api_key.json
+          API_KEY_PATH="$HOME/.fastlane/appstore_api_key.json"
+          fastlane run cert development:false output_path:/tmp/certs api_key_path:"$API_KEY_PATH"
           echo "Certificate check done"
 
       - name: Create/Download Provisioning Profile
         run: |
-          fastlane run sigh app_identifier:com.khandan.telegraph username:"" api_key_path:~/.fastlane/appstore_api_key.json force:true
+          API_KEY_PATH="$HOME/.fastlane/appstore_api_key.json"
+          fastlane run sigh app_identifier:com.khandan.telegraph username:"" api_key_path:"$API_KEY_PATH" force:true
           echo "Profile downloaded"
 
       - name: Flutter pub get
