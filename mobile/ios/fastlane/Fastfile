@@ -1,0 +1,29 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Setup code signing for Khandan"
+  lane :setup_signing do
+    api_key = app_store_connect_api_key(
+      key_id: ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key_filepath: File.expand_path(ENV["ASC_KEY_PATH"])
+    )
+
+    # Create Distribution Certificate if needed
+    cert(development: false, output_path: "/tmp/certs")
+
+    # Create App ID on Developer Portal (fails silently if already exists)
+    begin
+      produce(
+        app_identifier: "com.khandan.telegraph",
+        app_name: "Khandan",
+        skip_itc: true
+      )
+    rescue => e
+      puts "Note: #{e.message}"
+    end
+
+    # Create/Download Provisioning Profile
+    sigh(app_identifier: "com.khandan.telegraph", force: true)
+  end
+end
