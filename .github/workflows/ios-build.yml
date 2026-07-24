@@ -58,23 +58,44 @@ jobs:
           # Get provisioning profile
           fastlane run sigh app_identifier:com.khandan.telegraph force:true api_key_path:"$KEY_PATH"
           
-          # Copy profile to Xcode's provisioning profiles directory
+          # Copy profile to Xcode provisioning profile directory
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           find ~/Library -name "*.mobileprovision" -exec cp {} ~/Library/MobileDevice/Provisioning\ Profiles/ \; 2>/dev/null || true
           find /tmp -name "*.mobileprovision" -exec cp {} ~/Library/MobileDevice/Provisioning\ Profiles/ \; 2>/dev/null || true
-          
-          echo "Installed profiles:"
           ls ~/Library/MobileDevice/Provisioning\ Profiles/
-          
-          # Set manual signing in project
-          PBX="ios/Runner.xcodeproj/project.pbxproj"
-          sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' "$PBX"
-          # Also ensure DevelopmentTeam is set
-          sed -i '' 's/DEVELOPMENT_TEAM = "";/DEVELOPMENT_TEAM = N6XDRH99C8;/g' "$PBX"
-          sed -i '' 's/DEVELOPMENT_TEAM = ;/DEVELOPMENT_TEAM = N6XDRH99C8;/g' "$PBX"
           
           echo "Available signing certs:"
           security find-identity -v -p codesigning
+
+      - name: Set manual signing in Xcode project
+        shell: python
+        run: |
+          import re
+          pbx = "ios/Runner.xcodeproj/project.pbxproj"
+          with open(pbx, "r") as f:
+              content = f.read()
+          
+          # Runner target build config UUIDs: Debug, Release, Profile
+          target_ids = ["97C14706", "97C14707", "249021D4"]
+          
+          for tid in target_ids:
+              # Find the block: starts with whitespace + tid + whitespace + isa
+              pattern = rf'(\s*{tid}\s+.*?\{{\s*)(.*?)(\s*}}\s*;)'
+              def replacer(m):
+                  pre = m.group(1)
+                  body = m.group(2)
+                  post = m.group(3)
+                  # Add CODE_SIGN_STYLE and DEVELOPMENT_TEAM if not present
+                  if "CODE_SIGN_STYLE" not in body:
+                      body += "\n\t\t\t\tCODE_SIGN_STYLE = Manual;"
+                  if "DEVELOPMENT_TEAM" not in body:
+                      body += "\n\t\t\t\tDEVELOPMENT_TEAM = N6XDRH99C8;"
+                  return pre + body + post
+              content = re.sub(pattern, replacer, content, flags=re.DOTALL)
+          
+          with open(pbx, "w") as f:
+              f.write(content)
+          print("Updated project.pbxproj with manual signing settings")
 
       - name: Flutter pub get
         run: flutter pub get
