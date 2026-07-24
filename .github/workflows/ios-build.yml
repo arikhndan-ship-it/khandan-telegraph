@@ -28,9 +28,11 @@ jobs:
           key = os.environ["API_KEY"]
           key_id = os.environ["KEY_ID"]
           os.makedirs(os.path.expanduser("~/private_keys"), exist_ok=True)
+          os.makedirs(os.path.expanduser("~/.fastlane"), exist_ok=True)
+          # Write .p8 key for xcodebuild auto-signing
           with open(os.path.expanduser(f"~/private_keys/AuthKey_{key_id}.p8"), "w") as f:
               f.write(key)
-          os.makedirs(os.path.expanduser("~/.fastlane"), exist_ok=True)
+          # Write JSON key for fastlane
           with open(os.path.expanduser("~/.fastlane/appstore_api_key.json"), "w") as f:
               json.dump({"key_id": key_id, "issuer_id": os.environ["ISSUER_ID"], "key": key, "in_house": False}, f)
           print("API key files written")
@@ -39,13 +41,10 @@ jobs:
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
 
-      - name: Setup Fastlane
-        run: gem install fastlane -q
-
-      - name: Full Build (cert + profile + build + sign + export)
+      - name: Install cert + profile, configure project, then build
         shell: python
         run: |
-          import subprocess, os, glob, shutil, plistlib, json as j
+          import subprocess, os, glob, shutil, plistlib
           
           KEY_PATH = os.path.expanduser("~/.fastlane/appstore_api_key.json")
           PROFILES_DIR = os.path.expanduser("~/Library/MobileDevice/Provisioning Profiles")
@@ -53,34 +52,47 @@ jobs:
           os.makedirs(PROFILES_DIR, exist_ok=True)
           os.makedirs(CERT_DIR, exist_ok=True)
           
-          def run(cmd, cwd=None):
-              r = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=cwd)
-              if r.stdout: print(r.stdout[-2000:])
-              if r.returncode != 0 and r.stderr: print("ERR:", r.stderr[-1500:])
+          def run(cmd, check=True):
+              print(f"  RUN: {cmd[:80]}...")
+              r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+              if r.stdout:
+                  for line in r.stdout.split('\n')[-10:]:
+                      if line.strip():
+                          print(f"    {line[:200]}")
+              if r.returncode != 0 and r.stderr:
+                  for line in r.stderr.split('\n')[-5:]:
+                      if line.strip():
+                          print(f"    ERR: {line[:200]}")
+              if check and r.returncode != 0:
+                  print(f"  FAILED (exit {r.returncode})")
+                  exit(r.returncode)
               return r
           
-          # 1. GET CERT
-          print("=== GET CERT ===")
+          # Install fastlane
+          run("gem install fastlane -q")
+          
+          # Get cert
+          print("\n=== GET CERT ===")
           run(f'fastlane run cert development:false output_path:{CERT_DIR} api_key_path:"{KEY_PATH}"')
           
-          # 2. IMPORT CERT
+          # Import cert
           print("\n=== IMPORT CERT ===")
-          for f in glob.glob(f"{CERT_DIR}/*"):
-              print(f"  Importing: {f}")
-              run(f'security import "{f}" -k ~/Library/Keychains/login.keychain-db -P "" -A')
-              run(f'security import "{f}" -k ~/Library/Keychains/login.keychain-db -P "temp" -A')
+          run(f'security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db', check=False)
+          run(f'security set-keychain-settings -lut 3600 ~/Library/Keychains/login.keychain-db', check=False)
+          for f in sorted(glob.glob(f"{CERT_DIR}/*")):
+              if "signingRequest" not in f and "private" not in f:
+                  print(f"  Importing: {os.path.basename(f)}")
+                  run(f'security import "{f}" -k ~/Library/Keychains/login.keychain-db -P "" -A -T /usr/bin/codesign -T /usr/bin/xcodebuild', check=False)
           
-          # 3. LIST CERTS
-          print("\n=== CERT LIST ===")
           run("security find-identity -v -p codesigning")
           
-          # 4. GET PROFILE
+          # Get profile
           print("\n=== GET PROFILE ===")
           for old in glob.glob(os.path.join(PROFILES_DIR, "*")):
               os.remove(old)
-          r = run(f'fastlane run sigh app_identifier:com.khandan.telegraph force:true api_key_path:"{KEY_PATH}"')
+          run(f'fastlane run sigh app_identifier:com.khandan.telegraph force:true api_key_path:"{KEY_PATH}"')
           
-          # 5. PARSE AND INSTALL PROFILE
+          # Install profile
           print("\n=== INSTALL PROFILE ===")
           profile_name = None
           for root, dirs, files in os.walk(os.path.expanduser("~")):
@@ -93,25 +105,33 @@ jobs:
                           plist_start = data.find(b"<?xml")
                           plist_end = data.find(b"</plist>")
                           if plist_start >= 0 and plist_end >= 0:
-                              plist = plistlib.loads(data[plist_start:plist_end + len(b"</plist>")])
+                              plist_data = data[plist_start:plist_end + len(b"</plist>")]
+                              plist = plistlib.loads(plist_data)
                               puid = plist.get("UUID", "")
                               pname = plist.get("Name", "")
                               if profile_name is None: profile_name = pname
                               dst = os.path.join(PROFILES_DIR, f"{puid}.mobileprovision")
-                              if src != dst:
-                                  shutil.copy2(src, dst)
-                                  print(f"  Profile: {pname} -> {puid}.mobileprovision")
+                              shutil.copy2(src, dst)
+                              print(f"  Installed: {pname} ({puid})")
                       except Exception as e:
-                          print(f"  Error: {e}")
+                          print(f"  Error reading {f}: {e}")
           
           print(f"  Using profile: {profile_name}")
           
-          # 6. CONFIGURE PROJECT
+          # Configure project for manual signing
           print("\n=== CONFIGURE PROJECT ===")
           pbx = "ios/Runner.xcodeproj/project.pbxproj"
           with open(pbx, "r") as f:
               content = f.read()
           
+          # Remove any AUTO or Manual sign settings first
+          import re
+          content = re.sub(r'\t+CODE_SIGN_STYLE\s*=.*?;\n', '', content)
+          content = re.sub(r'\t+DEVELOPMENT_TEAM\s*=.*?;\n', '', content)
+          content = re.sub(r'\t+PROVISIONING_PROFILE_SPECIFIER\s*=.*?;\n', '', content)
+          content = re.sub(r'\t+"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]"\s*=.*?;\n', '', content)
+          
+          # Add manual signing after bundle identifier
           settings = (
               '\t\t\t\tCODE_SIGN_STYLE = Manual;\n'
               '\t\t\t\tDEVELOPMENT_TEAM = N6XDRH99C8;\n'
@@ -124,64 +144,15 @@ jobs:
           )
           with open(pbx, "w") as f:
               f.write(content)
+          print("  Project configured for manual signing")
           
-          # 7. FLUTTER PUB GET + BUILD
-          print("\n=== BUILD ===")
-          r = run("flutter pub get")
-          if r.returncode != 0:
-              print("pub get failed")
-              exit(1)
+          # Build
+          print("\n=== BUILD IPA ===")
+          run("flutter pub get")
+          run("flutter build ipa --release --export-method app-store --build-number=19")
           
-          # Build unsigned
-          r = run("flutter build ios --release --no-codesign")
-          if r.returncode != 0:
-              print("flutter build failed")
-              exit(1)
+          print("\n✅ SUCCESS!")
           
-          # Archive with signing
-          print("\n=== ARCHIVE ===")
-          r = run(
-              'xcodebuild archive '
-              '-workspace ios/Runner.xcworkspace '
-              '-scheme Runner '
-              '-configuration Release '
-              '-archivePath build/ios/Runner.xcarchive '
-              'CODE_SIGN_STYLE=Manual '
-              f'PROVISIONING_PROFILE_SPECIFIER="{profile_name}" '
-              'DEVELOPMENT_TEAM=N6XDRH99C8 '
-              'CODE_SIGN_IDENTITY="iPhone Distribution"'
-          )
-          if r.returncode != 0:
-              print("Archive failed")
-              exit(1)
-          
-          # Export
-          print("\n=== EXPORT IPA ===")
-          os.makedirs("build/ios/Export", exist_ok=True)
-          with open("build/ios/Export/ExportOptions.plist", "w") as f:
-              f.write('<?xml version="1.0" encoding="UTF-8"?>\n'
-                  '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
-                  '<plist version="1.0"><dict>\n'
-                  '<key>method</key><string>app-store</string>\n'
-                  '<key>teamID</key><string>N6XDRH99C8</string>\n'
-                  '<key>signingStyle</key><string>manual</string>\n'
-                  '<key>uploadBitcode</key><false/>\n'
-                  '<key>uploadSymbols</key><true/>\n'
-                  '</dict></plist>')
-          
-          r = run(
-              'xcodebuild -exportArchive '
-              '-archivePath build/ios/Runner.xcarchive '
-              '-exportPath build/ios/ipa '
-              '-exportOptionsPlist build/ios/Export/ExportOptions.plist'
-          )
-          if r.returncode != 0:
-              print("Export failed")
-              exit(1)
-          
-          print("\n✅ IPA BUILD AND EXPORT SUCCESSFUL!")
-          exit(0)
-
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
