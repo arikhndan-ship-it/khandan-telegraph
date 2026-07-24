@@ -24,36 +24,240 @@ jobs:
       - name: Write App Store Connect API Key
         shell: python
         run: |
-          import os
+          import os, json
           key = os.environ["API_KEY"]
           key_id = os.environ["KEY_ID"]
-          key_dir = os.path.expanduser("~/private_keys")
-          os.makedirs(key_dir, exist_ok=True)
-          p8_path = os.path.join(key_dir, "AuthKey_%s.p8" % key_id)
-          with open(p8_path, "w") as f:
+          os.makedirs(os.path.expanduser("~/private_keys"), exist_ok=True)
+          os.makedirs(os.path.expanduser("~/.fastlane"), exist_ok=True)
+          with open(os.path.expanduser("~/private_keys/AuthKey_%s.p8" % key_id), "w") as f:
               f.write(key)
-          print("API key written: %s" % p8_path)
+          with open(os.path.expanduser("~/.fastlane/appstore_api_key.json"), "w") as f:
+              json.dump({"key_id": key_id, "issuer_id": os.environ["ISSUER_ID"], "key": key, "in_house": False}, f)
+          print("API key files written")
         env:
           API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+
+      - name: Load saved distribution cert (if available)
+        run: |
+          if [ -n "${{ secrets.DIST_CERT_P12 }}" ]; then
+            echo "${{ secrets.DIST_CERT_P12 }}" | base64 -d > /tmp/saved_cert.p12
+            echo "Saved cert loaded"
+          else
+            echo "No saved cert found"
+          fi
+
+      - name: Cert and Profile Setup
+        timeout-minutes: 5
+        shell: python
+        run: |
+          import subprocess, os, glob, shutil, plistlib
+          
+          KEY_PATH = os.path.expanduser("~/.fastlane/appstore_api_key.json")
+          PROFILES_DIR = os.path.expanduser("~/Library/MobileDevice/Provisioning Profiles")
+          CERT_DIR = "/tmp/certs"
+          os.makedirs(PROFILES_DIR, exist_ok=True)
+          os.makedirs(CERT_DIR, exist_ok=True)
+          
+          subprocess.run("gem install fastlane -q", shell=True, capture_output=True)
+          
+          # Check if we have a saved p12 in secrets (check /tmp/saved_cert.p12)
+          saved_p12 = "/tmp/saved_cert.p12"
+          cert_imported = False
+          
+          if os.path.exists(saved_p12) and os.path.getsize(saved_p12) > 100:
+              print("Found saved p12 cert, importing...")
+              r = subprocess.run(
+                  'security import "%s" -k ~/Library/Keychains/login.keychain-db -P "" -A' % saved_p12,
+                  shell=True, capture_output=True, text=True
+              )
+              if r.returncode == 0:
+                  print("Saved cert imported successfully")
+                  cert_imported = True
+          
+          if not cert_imported:
+              # Try to get cert (may fail if at limit)
+              print("=== Getting certificate ===")
+              r = subprocess.run(
+                  'fastlane run cert development:false output_path:%s api_key_path:"%s"'
+                  % (CERT_DIR, KEY_PATH),
+                  shell=True, capture_output=True, text=True
+              )
+              if r.returncode == 0:
+                  print("Cert created/downloaded")
+                  # Export cert as p12 for future reuse
+                  certs_found = [f for f in glob.glob("%s/*" % CERT_DIR) 
+                                 if "signingRequest" not in os.path.basename(f)
+                                 and "private" not in os.path.basename(f)]
+                  for f in certs_found:
+                      fn = os.path.basename(f)
+                      if fn.endswith(".cer"):
+                          print("  Exporting cert %s to p12..." % fn)
+                          # Get SHA-1 hash of the cert
+                          r2 = subprocess.run(
+                              'security find-identity -v -p codesigning | grep "iPhone Distribution"',
+                              shell=True, capture_output=True, text=True
+                          )
+                          if r2.stdout:
+                              sha1 = r2.stdout.strip().split(" ")[1] if len(r2.stdout.strip().split(" ")) > 1 else ""
+                              if sha1:
+                                  export_cmd = 'security export -k ~/Library/Keychains/login.keychain-db -t identities -f pkcs12 -P "" -o /tmp/dist_cert.p12 "%s"' % sha1
+                                  subprocess.run(export_cmd, shell=True, capture_output=True)
+                                  if os.path.exists("/tmp/dist_cert.p12"):
+                                      print("  Cert exported to /tmp/dist_cert.p12")
+              else:
+                  print("Cert limit reached. Trying to use existing cert on Apple portal...")
+                  for line in r.stderr.split('\n')[-3:]:
+                      if line.strip(): print("  %s" % line[:200])
+          
+          # 2. Unlock keychain
+          subprocess.run('security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db', shell=True, capture_output=True)
+          
+          # 3. Import any certs found in temp dir
+          print("=== Importing certificates ===")
+          for f in glob.glob("%s/*" % CERT_DIR):
+              fn = os.path.basename(f)
+              if fn.endswith(".cer") and "signingRequest" not in fn:
+                  print("  Import: %s" % fn)
+                  subprocess.run('security import "%s" -k ~/Library/Keychains/login.keychain-db -P "" -A' % f,
+                               shell=True, capture_output=True)
+              elif fn.endswith(".p12"):
+                  print("  Import p12: %s" % fn)
+                  subprocess.run('security import "%s" -k ~/Library/Keychains/login.keychain-db -P "" -A' % f,
+                               shell=True, capture_output=True)
+          
+          # 4. Show available identities
+          print("=== Available signing identities ===")
+          subprocess.run("security find-identity -v -p codesigning", shell=True)
+          
+          # 5. Get provisioning profile
+          print("=== Getting provisioning profile ===")
+          for old in glob.glob(os.path.join(PROFILES_DIR, "*")):
+              os.remove(old)
+          
+          r = subprocess.run(
+              'fastlane run sigh app_identifier:com.khandan.telegraph force:true api_key_path:"%s"' % KEY_PATH,
+              shell=True, capture_output=True, text=True
+          )
+          if r.returncode != 0:
+              print("Sigh failed:")
+              for line in r.stderr.split('\n')[-5:]:
+                  if line.strip(): print("  %s" % line[:200])
+              exit(1)
+          
+          # 6. Install and parse profile
+          print("=== Installing profile ===")
+          profile_name = None
+          for root, dirs, files in os.walk(os.path.expanduser("~")):
+              for f in files:
+                  if f.endswith(".mobileprovision"):
+                      src = os.path.join(root, f)
+                      try:
+                          r = subprocess.run(['security', 'cms', '-D', '-i', src], capture_output=True, text=True)
+                          if r.returncode == 0:
+                              plist = plistlib.loads(r.stdout.encode())
+                              puid = plist.get("UUID", "")
+                              pname = plist.get("Name", "")
+                              if profile_name is None:
+                                  profile_name = pname
+                              dst = os.path.join(PROFILES_DIR, "%s.mobileprovision" % puid)
+                              if os.path.abspath(src) != os.path.abspath(dst):
+                                  shutil.copy2(src, dst)
+                              print("  %s (%s)" % (pname, puid))
+                      except:
+                          pass
+          
+          print("Profile name: %s" % profile_name)
+          if not profile_name:
+              print("ERROR: No provisioning profile found!")
+              exit(1)
+          
+          # 7. Write profile name for later steps
+          with open("build_profile_name.txt", "w") as f:
+              f.write(profile_name)
 
       - name: Flutter pub get
         timeout-minutes: 5
         run: flutter pub get
 
-      - name: Build IPA (auto signing via API key)
-        timeout-minutes: 30
+      - name: Build iOS (compile Dart)
+        timeout-minutes: 15
         run: |
-          export APP_STORE_CONNECT_API_KEY_ID="${{ secrets.APP_STORE_CONNECT_KEY_ID }}"
-          export APP_STORE_CONNECT_ISSUER_ID="${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
-          export APP_STORE_CONNECT_KEY_PATH="$HOME/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8"
+          export FLUTTER_FRONTEND_SERVER_MEMORY=4096
+          echo "=== Building iOS (Dart compilation) ==="
+          flutter build ios --release --no-codesign
+
+      - name: Archive with signing
+        timeout-minutes: 15
+        run: |
+          export PROFILE_NAME=$(cat build_profile_name.txt)
+          echo "Profile: $PROFILE_NAME"
           
-          echo "=== Env vars set ==="
-          echo "KEY_ID: $APP_STORE_CONNECT_API_KEY_ID"
-          echo "ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID"
-          echo "KEY_PATH: $APP_STORE_CONNECT_KEY_PATH"
+          echo "=== Configuring pbxproj for manual signing ==="
+          python3 << 'PYEOF'
+          import re, os
+          pname = os.environ.get('PROFILE_NAME', '')
+          print("Using profile:", pname)
           
-          flutter build ipa --release --export-method app-store --build-number=27
+          with open('ios/Runner.xcodeproj/project.pbxproj', 'r') as f:
+              content = f.read()
+          
+          content = re.sub(r'\t+CODE_SIGN_STYLE\s*=.*?;\n', '', content)
+          content = re.sub(r'\t+DEVELOPMENT_TEAM\s*=.*?;\n', '', content)
+          content = re.sub(r'\t+PROVISIONING_PROFILE_SPECIFIER\s*=.*?;\n', '', content)
+          content = re.sub(r'\t+\"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]\"\s*=.*?;\n', '', content)
+          
+          settings = (
+              '\t\t\t\tCODE_SIGN_STYLE = Manual;\n'
+              '\t\t\t\tDEVELOPMENT_TEAM = N6XDRH99C8;\n'
+              '\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "%s";\n' % pname
+              '\t\t\t\t"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";\n'
+          )
+          content = content.replace(
+              'PRODUCT_BUNDLE_IDENTIFIER = com.khandan.telegraph;\n',
+              'PRODUCT_BUNDLE_IDENTIFIER = com.khandan.telegraph;\n' + settings
+          )
+          with open('ios/Runner.xcodeproj/project.pbxproj', 'w') as f:
+              f.write(content)
+          print('pbxproj configured')
+          PYEOF
+          
+          echo "=== Archiving ==="
+          xcodebuild archive \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -archivePath build/ios/Runner.xcarchive
+
+      - name: Export IPA
+        timeout-minutes: 10
+        run: |
+          echo "=== Creating ExportOptions.plist ==="
+          cat > ios/ExportOptions.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>teamID</key>
+              <string>N6XDRH99C8</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>uploadBitcode</key>
+              <false/>
+              <key>uploadSymbols</key>
+              <true/>
+          </dict>
+          </plist>
+          PLIST
+          
+          echo "=== Exporting IPA ==="
+          xcodebuild -exportArchive \
+            -archivePath build/ios/Runner.xcarchive \
+            -exportPath build/ios/ipa \
+            -exportOptionsPlist ios/ExportOptions.plist
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
@@ -62,3 +266,12 @@ jobs:
           path: mobile/build/ios/ipa/*.ipa
           compression-level: 0
           retention-days: 30
+
+      - name: Upload cert for reuse
+        uses: actions/upload-artifact@v4
+        with:
+          name: Distribution-Cert
+          path: /tmp/dist_cert.p12
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: ignore
