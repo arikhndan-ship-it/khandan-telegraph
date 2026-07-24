@@ -45,21 +45,11 @@ jobs:
       - name: Setup Fastlane
         run: gem install fastlane -q
 
-      - name: Create Distribution Certificate (if needed)
+      - name: Create Certificate and Provisioning Profile
         run: |
-          API_KEY_PATH="$HOME/.fastlane/appstore_api_key.json"
-          fastlane run cert development:false output_path:/tmp/certs api_key_path:"$API_KEY_PATH"
-          echo "Certificate check done"
-
-      - name: Create App ID and Provisioning Profile
-        run: |
-          API_KEY_PATH="$HOME/.fastlane/appstore_api_key.json"
-          # Create the App ID (bundle identifier) on Apple Developer Portal
-          fastlane run produce username:"" api_key_path:"$API_KEY_PATH" app_identifier:com.khandan.telegraph app_name:Khandan skip_itc:true
-          echo "App ID created"
-          # Now create the provisioning profile
-          fastlane run sigh app_identifier:com.khandan.telegraph username:"" api_key_path:"$API_KEY_PATH" force:true
-          echo "Profile downloaded"
+          KEY_PATH="$HOME/.fastlane/appstore_api_key.json"
+          fastlane run cert development:false output_path:/tmp/certs api_key_path:"$KEY_PATH"
+          fastlane run sigh app_identifier:com.khandan.telegraph force:true api_key_path:"$KEY_PATH"
 
       - name: Flutter pub get
         run: flutter pub get
