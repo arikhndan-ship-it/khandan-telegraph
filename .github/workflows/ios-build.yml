@@ -44,83 +44,44 @@ jobs:
       - name: Setup Fastlane
         run: gem install fastlane -q
 
-      - name: Build IPA (retry until success)
-        shell: python
+      - name: Get cert + profile + configure project
         run: |
-          import subprocess, os, time, json
+          KEY_PATH="$HOME/.fastlane/appstore_api_key.json"
+          
+          # Get certificate
+          fastlane run cert development:false output_path:/tmp/certs api_key_path:"$KEY_PATH"
+          
+          # Import certificate
+          security import /tmp/certs/*.p12 -k ~/Library/Keychains/login.keychain-db -P "" -A 2>/dev/null || true
+          security import /tmp/certs/*.cer -k ~/Library/Keychains/login.keychain-db -A 2>/dev/null || true
+          
+          # Get provisioning profile
+          fastlane run sigh app_identifier:com.khandan.telegraph force:true api_key_path:"$KEY_PATH"
+          
+          # Copy profile to Xcode's provisioning profiles directory
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          find ~/Library -name "*.mobileprovision" -exec cp {} ~/Library/MobileDevice/Provisioning\ Profiles/ \; 2>/dev/null || true
+          find /tmp -name "*.mobileprovision" -exec cp {} ~/Library/MobileDevice/Provisioning\ Profiles/ \; 2>/dev/null || true
+          
+          echo "Installed profiles:"
+          ls ~/Library/MobileDevice/Provisioning\ Profiles/
+          
+          # Set manual signing in project
+          PBX="ios/Runner.xcodeproj/project.pbxproj"
+          sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' "$PBX"
+          # Also ensure DevelopmentTeam is set
+          sed -i '' 's/DEVELOPMENT_TEAM = "";/DEVELOPMENT_TEAM = N6XDRH99C8;/g' "$PBX"
+          sed -i '' 's/DEVELOPMENT_TEAM = ;/DEVELOPMENT_TEAM = N6XDRH99C8;/g' "$PBX"
+          
+          echo "Available signing certs:"
+          security find-identity -v -p codesigning
 
-          KEY_PATH = os.path.expanduser("~/.fastlane/appstore_api_key.json")
-          MAX_RETRIES = 50
-          RETRY_DELAY = 30
+      - name: Flutter pub get
+        run: flutter pub get
 
-          def run_cmd(cmd, cwd=None):
-              result = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=cwd)
-              if result.returncode != 0:
-                  print(f"COMMAND FAILED:\n{cmd[:200]}")
-                  print(result.stdout[-500:] if result.stdout else "")
-                  print(result.stderr[-500:] if result.stderr else "")
-              return result.returncode == 0
-
-          for attempt in range(1, MAX_RETRIES + 1):
-              print(f"\n{'='*60}")
-              print(f"BUILD ATTEMPT {attempt}/{MAX_RETRIES}")
-              print(f"{'='*60}")
-
-              success = True
-
-              # Step 1: Flutter pub get
-              if not run_cmd("flutter pub get"):
-                  print("pub get failed, retrying...")
-                  time.sleep(RETRY_DELAY)
-                  continue
-
-              # Step 2: Install Certificate
-              print("\n--- Installing Certificate ---")
-              cert_ok = run_cmd(f'fastlane run cert development:false output_path:/tmp/certs api_key_path:"{KEY_PATH}"')
-              # Try to import cert even if cert command reported an issue
-              run_cmd(f'security import /tmp/certs/*.p12 -k ~/Library/Keychains/login.keychain-db -P "" -A 2>/dev/null || true')
-              if not cert_ok:
-                  # If cert failed, revoke all existing certs and retry
-                  print("Cert step had an issue. Cleaning old certs and retrying...")
-                  time.sleep(5)
-                  continue
-
-              # Step 3: Install Provisioning Profile
-              print("\n--- Installing Provisioning Profile ---")
-              profile_ok = run_cmd(f'fastlane run sigh app_identifier:com.khandan.telegraph force:true api_key_path:"{KEY_PATH}"')
-              if not profile_ok:
-                  print("Profile step failed, retrying...")
-                  time.sleep(RETRY_DELAY)
-                  continue
-
-              # Step 4: Build and sign IPA with gym
-              print("\n--- Building and Signing IPA ---")
-              ios_dir = os.path.join(os.getcwd(), "ios")
-              gym_cmd = (
-                  f'fastlane gym '
-                  f'scheme:Runner '
-                  f'workspace:Runner.xcworkspace '
-                  f'export_method:app-store '
-                  f'output_directory:"../../build/ios/ipa" '
-                  f'output_name:Khandan.ipa '
-                  f'api_key_path:"{KEY_PATH}" '
-                  f'xcargs:"-allowProvisioningUpdates DEVELOPMENT_TEAM=N6XDRH99C8"'
-              )
-              gym_ok = run_cmd(gym_cmd, cwd=ios_dir)
-              if not gym_ok:
-                  print("Gym build failed, retrying...")
-                  time.sleep(RETRY_DELAY)
-                  continue
-
-              # All steps passed
-              print("\n✅ IPA BUILD SUCCEEDED!")
-              # Write a marker file so the next step knows it succeeded
-              with open("build/ios/ipa/.build_success", "w") as f:
-                  f.write("success")
-              exit(0)
-
-          print(f"\n❌ FAILED after {MAX_RETRIES} attempts")
-          exit(1)
+      - name: Build IPA
+        run: |
+          flutter build ipa --release --export-method app-store --build-number=${{ github.run_number }}
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
