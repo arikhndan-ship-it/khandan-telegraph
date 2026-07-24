@@ -189,6 +189,18 @@ class ApiService {
     throw Exception('Failed to load comments');
   }
 
+  /// Fetch public settings (minimum_app_version, update_url, etc.)
+  Future<Map<String, dynamic>> getSettings() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/settings'),
+      headers: {'Accept-Language': _currentLocale},
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception('Failed to load settings');
+  }
+
   Future<void> postComment(
     int articleId,
     String name,

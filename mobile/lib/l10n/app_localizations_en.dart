@@ -265,4 +265,30 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get notificationOpened => 'Notification opened';
+
+  @override
+  String get backToHome => 'Back to Home';
+
+  @override
+  String get updateRequired => 'Update Required';
+
+  @override
+  String get updateDescription =>
+      'A new version of Khandan is available. Please update to continue using the app.';
+
+  @override
+  String get updateNow => 'Update Now';
+
+  @override
+  String get mustUpdate => 'You must update to use this app';
+
+  @override
+  String get noInternetTitle => 'No Internet Connection';
+
+  @override
+  String get noInternetDesc =>
+      'Please check your internet connection and try again.';
+
+  @override
+  String get retryConnection => 'Retry';
 }

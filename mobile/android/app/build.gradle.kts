@@ -19,8 +19,8 @@ android {
         applicationId = "com.khandan.telegraph"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        versionCode = 6
-        versionName = "0.0.4"
+        versionCode = 9
+        versionName = "0.0.8"
     }
 
     signingConfigs {

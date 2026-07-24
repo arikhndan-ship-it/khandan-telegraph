@@ -265,4 +265,30 @@ class AppLocalizationsCkb extends AppLocalizations {
 
   @override
   String get notificationOpened => 'ئاگادارییەکە کرایەوە';
+
+  @override
+  String get backToHome => 'گەڕانەوە بۆ سەرەتا';
+
+  @override
+  String get updateRequired => 'نوێکردنەوە پێویستە';
+
+  @override
+  String get updateDescription =>
+      'وەشانێکی نوێی خەندان بەردەستە. تکایە نوێی بکەوە بۆ بەردەوامبوون لە بەکارهێنانی ئەم بەرنامەیە.';
+
+  @override
+  String get updateNow => 'نوێکردنەوە';
+
+  @override
+  String get mustUpdate => 'پێویستە نوێی بکەیتەوە بۆ بەکارهێنانی ئەم بەرنامەیە';
+
+  @override
+  String get noInternetTitle => 'پەیوەندی ئینتەرنێت نییە';
+
+  @override
+  String get noInternetDesc =>
+      'تکایە پەیوەندی ئینتەرنێتی خۆت بپشکنە و هەوڵبدەرەوە.';
+
+  @override
+  String get retryConnection => 'هەوڵدانەوە';
 }

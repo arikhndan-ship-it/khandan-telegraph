@@ -595,6 +595,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Notification opened'**
   String get notificationOpened;
+
+  /// No description provided for @backToHome.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to Home'**
+  String get backToHome;
+
+  /// No description provided for @updateRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Update Required'**
+  String get updateRequired;
+
+  /// No description provided for @updateDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'A new version of Khandan is available. Please update to continue using the app.'**
+  String get updateDescription;
+
+  /// No description provided for @updateNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Update Now'**
+  String get updateNow;
+
+  /// No description provided for @mustUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'You must update to use this app'**
+  String get mustUpdate;
+
+  /// No description provided for @noInternetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No Internet Connection'**
+  String get noInternetTitle;
+
+  /// No description provided for @noInternetDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Please check your internet connection and try again.'**
+  String get noInternetDesc;
+
+  /// No description provided for @retryConnection.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get retryConnection;
 }
 
 class _AppLocalizationsDelegate
