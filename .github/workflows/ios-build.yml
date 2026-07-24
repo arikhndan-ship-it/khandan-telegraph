@@ -27,117 +27,40 @@ jobs:
           import os, json
           key = os.environ["API_KEY"]
           key_id = os.environ["KEY_ID"]
-          
           os.makedirs(os.path.expanduser("~/private_keys"), exist_ok=True)
           with open(os.path.expanduser(f"~/private_keys/AuthKey_{key_id}.p8"), "w") as f:
               f.write(key)
-          
-          os.makedirs(os.path.expanduser("~/.fastlane"), exist_ok=True)
-          with open(os.path.expanduser("~/.fastlane/appstore_api_key.json"), "w") as f:
-              json.dump({"key_id": key_id, "issuer_id": os.environ["ISSUER_ID"], "key": key, "in_house": False}, f)
-          print("API key files written")
+          print("API key file written")
         env:
           API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
 
-      - name: Setup Fastlane
-        run: gem install fastlane -q
-
-      - name: Setup cert, profile, and project signing
+      - name: Configure project for Automatic signing
         shell: python
         run: |
-          import subprocess, os, glob, shutil, plistlib, json as j
-          
-          KEY_PATH = os.path.expanduser("~/.fastlane/appstore_api_key.json")
-          PROFILES_DIR = os.path.expanduser("~/Library/MobileDevice/Provisioning Profiles")
-          os.makedirs(PROFILES_DIR, exist_ok=True)
-          
-          # 1. Get distribution certificate
-          r = subprocess.run(f'fastlane run cert development:false output_path:/tmp/certs api_key_path:"{KEY_PATH}"', shell=True, capture_output=True, text=True)
-          print(r.stdout[-1000:] if r.stdout else "")
-          
-          # 2. Import cert
-          for c in glob.glob("/tmp/certs/*"):
-              for pw in ["", "temp"]:
-                  subprocess.run(f'security import "{c}" -k ~/Library/Keychains/login.keychain-db -P "{pw}" -A 2>/dev/null', shell=True)
-          
-          # 3. List certs
-          subprocess.run("security find-identity -v -p codesigning", shell=True, capture_output=False)
-          
-          # 4. Clear old profiles
-          for old in glob.glob(os.path.join(PROFILES_DIR, "*.mobileprovision")):
-              os.remove(old)
-          
-          # 5. Get provisioning profile
-          r = subprocess.run(f'fastlane run sigh app_identifier:com.khandan.telegraph force:true api_key_path:"{KEY_PATH}"', shell=True, capture_output=True, text=True)
-          print(r.stdout[-2000:] if r.stdout else "")
-          if r.returncode != 0:
-              print("SIGH ERROR:", r.stderr[-1000:] if r.stderr else "")
-          
-          # 6. Find the downloaded profile and install with UUID name
-          profile_uuid = None
-          profile_name = None
-          
-          for root, dirs, files in os.walk(os.path.expanduser("~")):
-              for f in files:
-                  if f.endswith(".mobileprovision"):
-                      src = os.path.join(root, f)
-                      try:
-                          with open(src, "rb") as pf:
-                              data = pf.read()
-                          plist_start = data.find(b"<?xml")
-                          plist_end = data.find(b"</plist>")
-                          if plist_start >= 0 and plist_end >= 0:
-                              plist = plistlib.loads(data[plist_start:plist_end + len(b"</plist>")])
-                              puid = plist.get("UUID")
-                              pname = plist.get("Name", "")
-                              dst = os.path.join(PROFILES_DIR, f"{puid}.mobileprovision")
-                              shutil.copy2(src, dst)
-                              print(f"Installed profile: UUID={puid}, Name={pname}")
-                              if profile_uuid is None:
-                                  profile_uuid = puid
-                                  profile_name = pname
-                      except Exception as e:
-                          print(f"Error processing {f}: {e}")
-          
-          print(f"\nUsing profile: {profile_name} (UUID: {profile_uuid})")
-          print("Installed profiles:")
-          for pf in glob.glob(os.path.join(PROFILES_DIR, "*")):
-              print(f"  {os.path.basename(pf)}")
-          
-          # 7. Configure project.pbxproj with Manual signing + profile specifier
           pbx = "ios/Runner.xcodeproj/project.pbxproj"
           with open(pbx, "r") as f:
               content = f.read()
           
-          manual_settings = (
-              '\t\t\t\tCODE_SIGN_STYLE = Manual;\n'
-              f'\t\t\t\tDEVELOPMENT_TEAM = N6XDRH99C8;\n'
-              f'\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "{profile_name}";\n'
-              '\t\t\t\t"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";\n'
-          )
-          
+          # Add DEVELOPMENT_TEAM after PRODUCT_BUNDLE_IDENTIFIER for ALL Runner target configs
           content = content.replace(
-              "PRODUCT_BUNDLE_IDENTIFIER = com.khandan.telegraph;\n",
-              "PRODUCT_BUNDLE_IDENTIFIER = com.khandan.telegraph;\n" + manual_settings
-          )
-          
-          # Also update project-level CODE_SIGN_IDENTITY for Release to Distribution
-          content = content.replace(
-              '"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";',
-              '"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";'
+              "PRODUCT_BUNDLE_IDENTIFIER = com.khandan.telegraph;\n\t\t\t\tPRODUCT_NAME",
+              "PRODUCT_BUNDLE_IDENTIFIER = com.khandan.telegraph;\n\t\t\t\tDEVELOPMENT_TEAM = N6XDRH99C8;\n\t\t\t\tPRODUCT_NAME"
           )
           
           with open(pbx, "w") as f:
               f.write(content)
-          print(f"\nAdded manual signing settings to pbxproj with profile: {profile_name}")
+          print("Added DEVELOPMENT_TEAM=N6XDRH99C8 to all Runner target configs")
 
       - name: Flutter pub get
         run: flutter pub get
 
       - name: Build IPA
         run: |
+          export APP_STORE_CONNECT_API_KEY_ID="${{ secrets.APP_STORE_CONNECT_KEY_ID }}"
+          export APP_STORE_CONNECT_ISSUER_ID="${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
+          export APP_STORE_CONNECT_KEY_PATH="$HOME/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8"
+          
           flutter build ipa --release --export-method app-store --build-number=${{ github.run_number }}
 
       - name: Upload IPA
