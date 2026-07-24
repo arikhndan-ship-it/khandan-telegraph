@@ -83,5 +83,12 @@
   "noNotifications": "No notifications yet",
   "errorLoading": "Failed to load content",
   "notificationOpened": "Notification opened",
-  "backToHome": "Back to Home"
+  "backToHome": "Back to Home",
+  "updateRequired": "Update Required",
+  "updateDescription": "A new version of Khandan is available. Please update to continue using the app.",
+  "updateNow": "Update Now",
+  "mustUpdate": "You must update to use this app",
+  "noInternetTitle": "No Internet Connection",
+  "noInternetDesc": "Please check your internet connection and try again.",
+  "retryConnection": "Retry"
 }

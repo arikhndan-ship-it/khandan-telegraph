@@ -1,13 +1,18 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'app/app.dart';
 import 'app/theme.dart';
 import 'services/notification_service.dart';
 import 'services/api_service.dart';
 import 'screens/article_detail_screen.dart';
 import 'screens/notifications_screen.dart';
+import 'screens/force_update_screen.dart';
+import 'screens/no_internet_screen.dart';
 import 'package:khandan_app/l10n/app_localizations.dart';
 
 /// Global navigator key for navigation from outside the widget tree
@@ -26,7 +31,6 @@ void main() async {
   // Initialize Firebase (gracefully falls back if no config)
   try {
     await Firebase.initializeApp();
-    // Request notification permissions
     final messaging = FirebaseMessaging.instance;
     await messaging.requestPermission(
       alert: true,
@@ -34,28 +38,22 @@ void main() async {
       sound: true,
     );
 
-    // Set up background message handler
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // Get and register FCM token
     final fcmToken = await messaging.getToken();
     if (fcmToken != null) {
       await NotificationService().registerDeviceToken(fcmToken, 'android');
       debugPrint('FCM token registered: ${fcmToken.substring(0, 20)}...');
     }
 
-    // Listen for token refresh
     messaging.onTokenRefresh.listen((newToken) {
       NotificationService().registerDeviceToken(newToken, 'android');
     });
 
-    // Handle FCM messages when app is in foreground
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       debugPrint('Foreground FCM message: ${message.notification?.title}');
-      // The polling service will also pick these up
     });
 
-    // Handle FCM tap when app was in background
     FirebaseMessaging.onMessageOpenedApp.listen(_handleFcmMessage);
   } catch (e) {
     debugPrint('Firebase init skipped (no project config): $e');
@@ -104,6 +102,41 @@ void _navigateToArticle(int articleId, {int retries = 5}) {
   });
 }
 
+/// Compare two version strings (e.g., "0.0.3" vs "0.0.5")
+bool _isVersionLower(String currentVersion, String minimumVersion) {
+  try {
+    final currentParts =
+        currentVersion.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    final minParts =
+        minimumVersion.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+
+    final maxLen =
+        currentParts.length > minParts.length
+            ? currentParts.length
+            : minParts.length;
+    for (int i = 0; i < maxLen; i++) {
+      final cur = i < currentParts.length ? currentParts[i] : 0;
+      final min = i < minParts.length ? minParts[i] : 0;
+      if (cur < min) return true;
+      if (cur > min) return false;
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
+/// Check internet connectivity by looking up a host
+Future<bool> _checkInternet() async {
+  try {
+    final result = await InternetAddress.lookup('google.com')
+        .timeout(const Duration(seconds: 5));
+    return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+  } catch (_) {
+    return false;
+  }
+}
+
 class KhandanApp extends StatefulWidget {
   const KhandanApp({super.key});
 
@@ -117,6 +150,10 @@ class KhandanApp extends StatefulWidget {
 
 class KhandanAppState extends State<KhandanApp> with WidgetsBindingObserver {
   Locale _locale = const Locale('ckb');
+  bool _initialLoading = true;
+  bool _noInternet = false;
+  bool _needsUpdate = false;
+  String _updateUrl = '';
 
   void setLocale(Locale locale) {
     NotificationService().setLocale(locale.languageCode);
@@ -125,18 +162,17 @@ class KhandanAppState extends State<KhandanApp> with WidgetsBindingObserver {
     setState(() => _locale = locale);
   }
 
-  /// Handle notification tap - navigate to article or open notifications list
+  /// Handle notification tap
   void _handleNotificationTap(String type, int? notifiableId, String? url) {
-    debugPrint('Notification tapped: type=$type, notifiableId=$notifiableId, url=$url');
+    debugPrint(
+        'Notification tapped: type=$type, notifiableId=$notifiableId, url=$url');
     if (type == 'article' && notifiableId != null) {
       _navigateToArticle(notifiableId);
     } else {
-      // For any other notification type, go to the in-app notifications list
       _navigateToNotifications();
     }
   }
 
-  /// Navigate to the in-app notifications screen
   void _navigateToNotifications({int retries = 5}) {
     final context = navigatorKey.currentContext;
     if (context == null) {
@@ -147,7 +183,6 @@ class KhandanAppState extends State<KhandanApp> with WidgetsBindingObserver {
       }
       return;
     }
-    // Pop to root first, then push the notifications screen
     Navigator.of(context).popUntil((route) => route.isFirst);
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -156,7 +191,6 @@ class KhandanAppState extends State<KhandanApp> with WidgetsBindingObserver {
     );
   }
 
-  /// Navigate to home screen safely
   void _ensureHome({int retries = 3}) {
     final context = navigatorKey.currentContext;
     if (context == null) {
@@ -170,6 +204,60 @@ class KhandanAppState extends State<KhandanApp> with WidgetsBindingObserver {
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
+  Future<void> _checkAppVersion() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final currentVersion = packageInfo.version;
+      final settings = await ApiService().getSettings();
+      final minimumVersion =
+          settings['minimum_app_version']?.toString() ?? '';
+      final updateUrl = settings['update_url']?.toString() ?? '';
+
+      debugPrint(
+          'App version check: current=$currentVersion, minimum=$minimumVersion');
+
+      if (minimumVersion.isNotEmpty &&
+          _isVersionLower(currentVersion, minimumVersion)) {
+        setState(() {
+          _needsUpdate = true;
+          _updateUrl = updateUrl;
+        });
+      }
+    } catch (e) {
+      debugPrint('Version check failed: $e');
+    }
+  }
+
+  Future<void> _startupSequence() async {
+    // Step 1: Check internet
+    final hasInternet = await _checkInternet();
+    if (!mounted) return;
+
+    if (!hasInternet) {
+      setState(() {
+        _noInternet = true;
+        _initialLoading = false;
+      });
+      return;
+    }
+
+    // Step 2: Check version
+    await _checkAppVersion();
+    if (!mounted) return;
+
+    setState(() => _initialLoading = false);
+  }
+
+  void _onInternetRestored() async {
+    // User pressed retry and got connected
+    setState(() {
+      _noInternet = false;
+      _initialLoading = true;
+    });
+    // Re-run startup sequence
+    await _startupSequence();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -178,13 +266,14 @@ class KhandanAppState extends State<KhandanApp> with WidgetsBindingObserver {
     NotificationService().setLocale(_locale.languageCode);
     ApiService.setLocale(_locale.languageCode);
 
-    // Set notification tap callback
     NotificationService().setOnTapCallback(_handleNotificationTap);
 
-    // Start polling after a short delay
     Future.delayed(const Duration(seconds: 3), () {
       NotificationService().startPolling();
     });
+
+    // Run startup sequence
+    _startupSequence();
   }
 
   @override
@@ -197,21 +286,16 @@ class KhandanAppState extends State<KhandanApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // Refresh notifications when app comes to foreground
       NotificationService().startPolling();
     }
-    // Don't stop polling on pause - keep it running in background
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildRootApp(Widget home) {
     return MaterialApp(
-      title: 'Khandan | خەندان',
       debugShowCheckedModeBanner: false,
-      navigatorKey: navigatorKey,
       locale: _locale,
+      home: home,
       theme: AppTheme.theme,
-      home: const App(),
       scrollBehavior: const _NoOverscrollBehavior(),
       localizationsDelegates: const [
         AppLocalizations.delegate,
@@ -232,6 +316,38 @@ class KhandanAppState extends State<KhandanApp> with WidgetsBindingObserver {
         return const Locale('ckb');
       },
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Initial loading - show spinner while checking internet + version
+    if (_initialLoading) {
+      return _buildRootApp(
+        const Scaffold(
+          backgroundColor: Color(0xFF0A0A0A),
+          body: Center(
+            child: CircularProgressIndicator(
+              color: AppTheme.primaryColor,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // No internet - show no-internet screen with retry
+    if (_noInternet) {
+      return _buildRootApp(NoInternetScreen(
+        onConnected: _onInternetRestored,
+      ));
+    }
+
+    // Update required - force update screen (with locale)
+    if (_needsUpdate) {
+      return _buildRootApp(ForceUpdateScreen(updateUrl: _updateUrl));
+    }
+
+    // Normal app
+    return _buildRootApp(const App());
   }
 }
 
