@@ -115,11 +115,18 @@ jobs:
               '\t\t\t\tCODE_SIGN_STYLE = Manual;\n'
               f'\t\t\t\tDEVELOPMENT_TEAM = N6XDRH99C8;\n'
               f'\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "{profile_name}";\n'
+              '\t\t\t\t"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";\n'
           )
           
           content = content.replace(
               "PRODUCT_BUNDLE_IDENTIFIER = com.khandan.telegraph;\n",
               "PRODUCT_BUNDLE_IDENTIFIER = com.khandan.telegraph;\n" + manual_settings
+          )
+          
+          # Also update project-level CODE_SIGN_IDENTITY for Release to Distribution
+          content = content.replace(
+              '"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";',
+              '"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";'
           )
           
           with open(pbx, "w") as f:
