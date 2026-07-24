@@ -52,14 +52,11 @@ jobs:
           
           def run(cmd, check=True):
               r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-              if r.stdout and "fastlane" not in cmd[:15]:
-                  for line in r.stdout.split('\n')[-5:]:
-                      if line.strip(): print(f"  {line[:200]}")
               if r.returncode != 0 and r.stderr:
-                  for line in r.stderr.split('\n')[-5:]:
+                  for line in r.stderr.split('\n')[-3:]:
                       if line.strip(): print(f"  ERR: {line[:200]}")
               if check and r.returncode != 0:
-                  print(f"FAILED: {cmd[:80]}")
+                  print(f"FAILED: exit {r.returncode}")
                   exit(r.returncode)
               return r
           
@@ -75,7 +72,7 @@ jobs:
           run('security set-keychain-settings -lut 3600 ~/Library/Keychains/login.keychain-db', check=False)
           for f in glob.glob(f"{CERT_DIR}/*"):
               fn = os.path.basename(f)
-              if "signingRequest" not in fn and "private" not in fn:
+              if fn.endswith(".p12") or fn.endswith(".cer"):
                   print(f"  Import: {fn}")
                   run(f'security import "{f}" -k ~/Library/Keychains/login.keychain-db -P "" -A', check=False)
           
@@ -88,33 +85,61 @@ jobs:
               os.remove(old)
           run(f'fastlane run sigh app_identifier:com.khandan.telegraph force:true api_key_path:"{KEY_PATH}"')
           
-          # Install profile
+          # Install profile - sigh puts it in PROFILES_DIR with correct UUID name
+          # But let's also search broader and use security cms -D to decode
           print("Installing profile...")
           profile_name = None
-          for root, dirs, files in os.walk(os.path.expanduser("~")):
-              for f in files:
-                  if f.endswith(".mobileprovision"):
-                      src = os.path.join(root, f)
-                      try:
-                          with open(src, "rb") as pf:
-                              data = pf.read()
-                          plist_start = data.find(b"<?xml")
-                          if plist_start >= 0:
-                              plist = plistlib.loads(data[plist_start:])
-                              puid = plist.get("UUID", "")
-                              pname = plist.get("Name", "")
-                              if profile_name is None: profile_name = pname
-                              dst = os.path.join(PROFILES_DIR, f"{puid}.mobileprovision")
-                              shutil.copy2(src, dst)
-                              print(f"  {pname} ({puid})")
-                      except Exception as e:
-                          print(f"  Skipping {f}: {e}")
+          
+          # Find all mobileprovision files in the profiles dir or sigh output dir
+          search_dirs = [PROFILES_DIR]
+          for d in search_dirs:
+              for f in glob.glob(os.path.join(d, "*.mobileprovision")):
+                  try:
+                      # Use security cms to decode the provisioning profile
+                      r = subprocess.run(['security', 'cms', '-D', '-i', f], capture_output=True, text=True)
+                      if r.returncode == 0:
+                          plist = plistlib.loads(r.stdout.encode())
+                          if profile_name is None:
+                              profile_name = plist.get("Name", "")
+                          puid = plist.get("UUID", "")
+                          # Ensure it's in the right dir with UUID name
+                          dst = os.path.join(PROFILES_DIR, f"{puid}.mobileprovision")
+                          if os.path.abspath(f) != os.path.abspath(dst):
+                              shutil.copy2(f, dst)
+                          print(f"  {plist.get('Name','')} ({puid})")
+                  except Exception as e:
+                      print(f"  Skipping {os.path.basename(f)}: {e}")
+          
+          if not profile_name:
+              # Try fastlane run sigh output
+              print("  No profile found in search dirs, looking wider...")
+              for root, dirs, files in os.walk(os.path.expanduser("~")):
+                  for f in files:
+                      if f.endswith(".mobileprovision"):
+                          src = os.path.join(root, f)
+                          try:
+                              r = subprocess.run(['security', 'cms', '-D', '-i', src], capture_output=True, text=True)
+                              if r.returncode == 0:
+                                  plist = plistlib.loads(r.stdout.encode())
+                                  if profile_name is None:
+                                      profile_name = plist.get("Name", "")
+                                  puid = plist.get("UUID", "")
+                                  dst = os.path.join(PROFILES_DIR, f"{puid}.mobileprovision")
+                                  if os.path.abspath(src) != os.path.abspath(dst):
+                                      shutil.copy2(src, dst)
+                                  print(f"  {plist.get('Name','')} ({puid})")
+                          except:
+                              pass
           
           print(f"Profile: {profile_name}")
           
-          # Write profile name to file for next step
+          if not profile_name:
+              print("ERROR: Could not find or parse provisioning profile!")
+              exit(1)
+          
+          # Write profile name for debugging
           with open("build_profile_name.txt", "w") as f:
-              f.write(profile_name or "")
+              f.write(profile_name)
           
           # Configure project for manual signing
           print("Configuring project...")
@@ -145,7 +170,7 @@ jobs:
       - name: Build IPA
         run: |
           flutter pub get
-          flutter build ipa --release --export-method app-store --build-number=20
+          flutter build ipa --release --export-method app-store --build-number=21
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
