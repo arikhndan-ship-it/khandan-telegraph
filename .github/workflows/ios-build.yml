@@ -22,10 +22,38 @@ jobs:
           architecture: x64
 
       - name: Write App Store Connect API Key
+        shell: python
         run: |
-          mkdir -p ~/private_keys
-          echo "${{ secrets.APP_STORE_CONNECT_API_KEY }}" > ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
-          echo "API key written to ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8"
+          import os, json
+          key = os.environ["API_KEY"]
+          key_id = os.environ["KEY_ID"]
+          issuer_id = os.environ["ISSUER_ID"]
+          
+          os.makedirs(os.path.expanduser("~/private_keys"), exist_ok=True)
+          with open(os.path.expanduser(f"~/private_keys/AuthKey_{key_id}.p8"), "w") as f:
+              f.write(key)
+          
+          os.makedirs(os.path.expanduser("~/.fastlane"), exist_ok=True)
+          with open(os.path.expanduser("~/.fastlane/appstore_api_key.json"), "w") as f:
+              json.dump({"key_id": key_id, "issuer_id": issuer_id, "key": key, "in_house": False}, f)
+          print("API key files written")
+        env:
+          API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+
+      - name: Setup Fastlane
+        run: gem install fastlane -q
+
+      - name: Create Distribution Certificate (if needed)
+        run: |
+          fastlane run cert development:false output_path:/tmp/certs api_key_path:~/.fastlane/appstore_api_key.json
+          echo "Certificate check done"
+
+      - name: Create/Download Provisioning Profile
+        run: |
+          fastlane run sigh app_identifier:com.khandan.telegraph username:"" api_key_path:~/.fastlane/appstore_api_key.json force:true
+          echo "Profile downloaded"
 
       - name: Flutter pub get
         run: flutter pub get
