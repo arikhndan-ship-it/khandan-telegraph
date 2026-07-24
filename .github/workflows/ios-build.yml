@@ -169,19 +169,67 @@ jobs:
               f.write(content)
           print("Done")
 
-      - name: Build IPA
+      - name: Flutter pub get
+        timeout-minutes: 5
+        run: flutter pub get
+
+      - name: Create ExportOptions.plist
         run: |
-          flutter pub get
-          # Free memory before compiling - kill unnecessary processes
-          pkill -f "Simulator" 2>/dev/null || true
-          pkill -f "CoreLocation" 2>/dev/null || true
-          pkill -f dart 2>/dev/null || true
-          sleep 2
-          echo "Memory before build:"
+          cat > ios/ExportOptions.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>teamID</key>
+              <string>N6XDRH99C8</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>uploadBitcode</key>
+              <false/>
+              <key>uploadSymbols</key>
+              <true/>
+              <key>compileBitcode</key>
+              <false/>
+          </dict>
+          </plist>
+          PLIST
+          echo "ExportOptions.plist created"
+
+      - name: Build for iOS (compile Dart only)
+        timeout-minutes: 15
+        run: |
+          echo "Memory:"
           vm_stat | head -3
-          flutter build ipa --release \
-            --export-method app-store \
-            --build-number=25
+          sysctl hw.memsize | awk '{printf "RAM: %.1f GB\n", $2/1073741824}'
+          flutter build ios --release --no-codesign
+
+      # Archive step uses signing settings already in pbxproj from step 5
+      - name: Archive with signing
+        timeout-minutes: 15
+        run: |
+          xcodebuild archive \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -archivePath build/ios/Runner.xcarchive
+
+      - name: Export IPA
+        timeout-minutes: 10
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/ios/Runner.xcarchive \
+            -exportPath build/ios/ipa \
+            -exportOptionsPlist ios/ExportOptions.plist
+
+      - name: Export IPA
+        timeout-minutes: 10
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/ios/Runner.xcarchive \
+            -exportPath build/ios/ipa \
+            -exportOptionsPlist ios/ExportOptions.plist
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
