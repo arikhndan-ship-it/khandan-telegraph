@@ -48,6 +48,8 @@ jobs:
         run: |
           KEY_PATH="$HOME/.fastlane/appstore_api_key.json"
           fastlane run cert development:false output_path:/tmp/certs api_key_path:"$KEY_PATH"
+          # Install the downloaded cert into the system keychain
+          security import /tmp/certs/*.p12 -k ~/Library/Keychains/login.keychain-db -P "" -A 2>/dev/null || true
           fastlane run sigh app_identifier:com.khandan.telegraph force:true api_key_path:"$KEY_PATH"
 
       - name: Flutter pub get
@@ -63,7 +65,8 @@ jobs:
             export_method:app-store \
             output_directory:"../../build/ios/ipa" \
             output_name:Khandan.ipa \
-            api_key_path:"$KEY_PATH"
+            api_key_path:"$KEY_PATH" \
+            xcargs:"-allowProvisioningUpdates DEVELOPMENT_TEAM=N6XDRH99C8"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
