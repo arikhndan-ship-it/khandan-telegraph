@@ -208,11 +208,12 @@ jobs:
           content = re.sub(r'\t+PROVISIONING_PROFILE_SPECIFIER\s*=.*?;\n', '', content)
           content = re.sub(r'\t+\"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]\"\s*=.*?;\n', '', content)
           
+          t = '\t\t\t\t'
           settings = (
-              '\t\t\t\tCODE_SIGN_STYLE = Manual;\n'
-              '\t\t\t\tDEVELOPMENT_TEAM = N6XDRH99C8;\n'
-              '\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "%s";\n' % pname
-              '\t\t\t\t"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";\n'
+              t + 'CODE_SIGN_STYLE = Manual;\n'
+              + t + 'DEVELOPMENT_TEAM = N6XDRH99C8;\n'
+              + t + 'PROVISIONING_PROFILE_SPECIFIER = "' + pname + '";\n'
+              + t + '"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";\n'
           )
           content = content.replace(
               'PRODUCT_BUNDLE_IDENTIFIER = com.khandan.telegraph;\n',
