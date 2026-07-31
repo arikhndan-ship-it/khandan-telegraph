@@ -53,13 +53,95 @@ jobs:
         timeout-minutes: 10
         shell: python
         run: |
-          import subprocess, os, glob, shutil, plistlib
+          import subprocess, os, glob, shutil, plistlib, json, base64, time, urllib.request, urllib.error
           
           KEY_PATH = os.path.expanduser("~/.fastlane/appstore_api_key.json")
           PROFILES_DIR = os.path.expanduser("~/Library/MobileDevice/Provisioning Profiles")
           CERT_DIR = "/tmp/certs"
           os.makedirs(PROFILES_DIR, exist_ok=True)
           os.makedirs(CERT_DIR, exist_ok=True)
+          
+          def b64url(data):
+              return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+          
+          def der_to_raw_es256sig(der):
+              # Convert DER-encoded ECDSA signature to raw R||S (32+32 bytes).
+              def read_int(data, i):
+                  if data[i] != 0x02:
+                      raise ValueError("expected INTEGER")
+                  ln = data[i + 1]
+                  start = i + 2
+                  if ln == 0x81:
+                      start = i + 3
+                  elif ln > 0x80:
+                      # long-form length not expected here
+                      raise ValueError("long-form length unsupported")
+                  n = int.from_bytes(data[start:start + ln], "big")
+                  return n, start + ln
+              i = 0
+              if der[i] != 0x30:
+                  raise ValueError("expected SEQUENCE")
+              seq_len = der[i + 1]
+              if seq_len == 0x81:
+                  i = i + 3
+              elif seq_len > 0x80:
+                  raise ValueError("long-form length unsupported")
+              else:
+                  i = i + 2
+              r, i = read_int(der, i)
+              s, i = read_int(der, i)
+              r = r.to_bytes(32, "big")
+              s = s.to_bytes(32, "big")
+              if len(r) > 32 or len(s) > 32:
+                  raise ValueError("signature too large for ES256")
+              return r.rjust(32, b"\x00") + s.rjust(32, b"\x00")
+          
+          def asc_token():
+              # Build an App Store Connect API JWT (ES256) from the p8 key.
+              with open(KEY_PATH) as f:
+                  info = json.load(f)
+              kid = info["key_id"]
+              iss = info["issuer_id"]
+              key_pem = info["key"]
+              with open("/tmp/asc_key.p8", "w") as f:
+                  f.write(key_pem)
+              header = b64url(json.dumps({"alg": "ES256", "kid": kid, "typ": "JWT"}).encode())
+              payload = b64url(json.dumps({"iss": iss, "exp": int(time.time()) + 1200, "aud": "appstoreconnect-v1"}).encode())
+              signing_input = (header + "." + payload).encode()
+              r = subprocess.run(
+                  ["openssl", "dgst", "-sha256", "-sign", "/tmp/asc_key.p8"],
+                  input=signing_input, capture_output=True
+              )
+              if r.returncode != 0:
+                  raise RuntimeError("openssl signing failed: %s" % r.stderr.decode())
+              sig = b64url(der_to_raw_es256sig(r.stdout))
+              return header + "." + payload + "." + sig
+          
+          def asc_request(path, method="GET"):
+              req = urllib.request.Request(
+                  "https://api.appstoreconnect.apple.com" + path,
+                  method=method,
+                  headers={"Authorization": "Bearer " + asc_token()},
+              )
+              with urllib.request.urlopen(req) as resp:
+                  body = resp.read()
+                  return json.loads(body) if body else {}
+          
+          def revoke_all_distribution_certs():
+              print("=== Revoking orphaned distribution certificates via ASC API ===")
+              data = asc_request("/v1/certificates?filter[certificateType]=DISTRIBUTION&limit=200")
+              certs = data.get("data", [])
+              print("Found %d distribution cert(s)" % len(certs))
+              for c in certs:
+                  cid = c["id"]
+                  name = c.get("attributes", {}).get("name", "")
+                  print("  Revoking %s (%s)..." % (cid, name))
+                  try:
+                      asc_request("/v1/certificates/%s" % cid, method="DELETE")
+                      print("    revoked")
+                  except urllib.error.HTTPError as e:
+                      print("    FAILED %s: %s" % (e.code, e.read()[:200]))
+              time.sleep(5)
           
           subprocess.run("gem install fastlane -q", shell=True, capture_output=True)
           
@@ -86,10 +168,11 @@ jobs:
               r = subprocess.run(base_cmd, shell=True, capture_output=True, text=True)
               if r.returncode != 0 and "maximum number of available Distribution certificates" in r.stderr:
                   print("Cert limit reached. Revoking orphaned certs and retrying...")
-                  r = subprocess.run(
-                      base_cmd + ' revoke_previous_certs:true force:true',
-                      shell=True, capture_output=True, text=True
-                  )
+                  try:
+                      revoke_all_distribution_certs()
+                  except Exception as e:
+                      print("  Revoke step error: %s" % e)
+                  r = subprocess.run(base_cmd, shell=True, capture_output=True, text=True)
               if r.returncode == 0:
                   print("Cert created/downloaded")
                   # Export cert as p12 for future reuse
