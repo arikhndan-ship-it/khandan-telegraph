@@ -210,12 +210,33 @@ jobs:
                       if line.strip(): print("  %s" % line[:200])
                   exit(1)
               print("Cert created/downloaded")
-              # fastlane saves the cert+p12 with the private key into CERT_DIR.
-              # Copy the p12 (or the fastlane-exported p12) for future reuse.
-              p12_files = [f for f in glob.glob("%s/*.p12" % CERT_DIR)]
-              if p12_files:
-                  shutil.copy2(p12_files[0], "/tmp/dist_cert.p12")
-                  print("  Copied fastlane p12 %s to /tmp/dist_cert.p12" % os.path.basename(p12_files[0]))
+              # fastlane saves the cert (.cer) and private key (PEM) into
+              # CERT_DIR. Build a proper PKCS12 bundle so the identity can
+              # be persisted and reused on later runs.
+              cer_files = [f for f in glob.glob("%s/*.cer" % CERT_DIR) if "signingRequest" not in os.path.basename(f)]
+              key_files = [f for f in glob.glob("%s/*" % CERT_DIR)
+                           if not f.endswith(".cer") and "signingRequest" not in os.path.basename(f)
+                           and "private" not in os.path.basename(f)]
+              if cer_files and key_files:
+                  r3 = subprocess.run(
+                      'openssl pkcs12 -export -inkey "%s" -in "%s" -out /tmp/dist_cert.p12 -passout pass:khandanp12 2>/dev/null' % (key_files[0], cer_files[0]),
+                      shell=True
+                  )
+                  if r3.returncode == 0 and os.path.exists("/tmp/dist_cert.p12"):
+                      print("  Built dist_cert.p12 from %s + %s" % (os.path.basename(key_files[0]), os.path.basename(cer_files[0])))
+              if not os.path.exists("/tmp/dist_cert.p12"):
+                  # Fallback: export the identity from the dedicated keychain
+                  r2 = subprocess.run(
+                      'security find-identity -v -p codesigning | grep "iPhone Distribution"',
+                      shell=True, capture_output=True, text=True
+                  )
+                  if r2.stdout:
+                      sha1 = r2.stdout.strip().split(" ")[1] if len(r2.stdout.strip().split(" ")) > 1 else ""
+                      if sha1:
+                          export_cmd = 'security export -k "%s" -t identities -f pkcs12 -P "khandanp12" -o /tmp/dist_cert.p12 "%s"' % (KC, sha1)
+                          subprocess.run(export_cmd, shell=True, capture_output=True)
+                          if os.path.exists("/tmp/dist_cert.p12"):
+                              print("  Cert exported to /tmp/dist_cert.p12")
 
           # Create/refresh the dedicated keychain. In the saved-p12 path it
           # was already created and populated above, so only do this when we
@@ -245,6 +266,10 @@ jobs:
           
           # 3. Import any certs found in temp dir into the dedicated keychain
           print("=== Importing certificates ===")
+          if os.path.exists("/tmp/dist_cert.p12"):
+              print("  Import dist_cert.p12 (built this run)")
+              subprocess.run('security import "/tmp/dist_cert.p12" -k "%s" -P "khandanp12" -T /usr/bin/codesign -T /usr/bin/security -A' % KC,
+                           shell=True, capture_output=True)
           for f in glob.glob("%s/*" % CERT_DIR):
               fn = os.path.basename(f)
               if fn.endswith(".cer") and "signingRequest" not in fn:
@@ -253,7 +278,7 @@ jobs:
                                shell=True, capture_output=True)
               elif fn.endswith(".p12"):
                   print("  Import p12: %s" % fn)
-                  subprocess.run('security import "%s" -k "%s" -P "" -T /usr/bin/codesign -T /usr/bin/security -A' % (f, KC),
+                  subprocess.run('security import "%s" -k "%s" -P "khandanp12" -T /usr/bin/codesign -T /usr/bin/security -A' % (f, KC),
                                shell=True, capture_output=True)
           
           # 4. Show available identities
