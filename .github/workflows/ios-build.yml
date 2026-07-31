@@ -367,8 +367,12 @@ jobs:
         timeout-minutes: 20
         run: |
           echo "=== Creating ExportOptions.plist ==="
-          cat > ios/ExportOptions.plist << 'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
+          export PROFILE_NAME=$(cat build_profile_name.txt)
+          python3 << 'PYEOF'
+          import os
+          pname = os.environ.get('PROFILE_NAME', '')
+          print("Using profile for export:", pname)
+          plist = f'''<?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
@@ -378,13 +382,22 @@ jobs:
               <string>N6XDRH99C8</string>
               <key>signingStyle</key>
               <string>manual</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>com.khandan.telegraph</key>
+                  <string>{pname}</string>
+              </dict>
               <key>uploadBitcode</key>
               <false/>
               <key>uploadSymbols</key>
               <true/>
           </dict>
           </plist>
-          PLIST
+          '''
+          with open('ios/ExportOptions.plist', 'w') as f:
+              f.write(plist)
+          print('ExportOptions.plist written')
+          PYEOF
           
           echo "=== Exporting IPA ==="
           xcodebuild -exportArchive \
