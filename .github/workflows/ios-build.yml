@@ -7,9 +7,6 @@ jobs:
   build-ipa:
     runs-on: macos-latest
     timeout-minutes: 90
-    permissions:
-      contents: read
-      secrets: write
     defaults:
       run:
         working-directory: mobile
@@ -197,7 +194,7 @@ jobs:
         if: always()
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.BUILD_GH_TOKEN }}
         run: |
           if [ -f /tmp/dist_cert.p12 ]; then
             base64 -i /tmp/dist_cert.p12 | gh secret set DIST_CERT_P12 --repo arikhndan-ship-it/khandan-telegraph
