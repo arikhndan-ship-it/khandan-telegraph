@@ -166,7 +166,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _ContactMethodTile(
                   icon: Icons.email,
                   label: l10n.secureEmail,
-                  value: 'khandatelegraph@gmail.com',
+                  value: 'khandantelegraph@gmail.com',
                 ),
                 _ContactMethodTile(
                   icon: Icons.chat,

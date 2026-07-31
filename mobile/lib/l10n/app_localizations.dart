@@ -545,7 +545,7 @@ abstract class AppLocalizations {
   /// No description provided for @secureEmailValue.
   ///
   /// In en, this message translates to:
-  /// **'khandatelegraph@gmail.com'**
+  /// **'khandantelegraph@gmail.com'**
   String get secureEmailValue;
 
   /// No description provided for @privacyPolicy.

@@ -239,7 +239,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get readMoreAt => 'Read more at Khandantelegraph';
 
   @override
-  String get secureEmailValue => 'khandatelegraph@gmail.com';
+  String get secureEmailValue => 'khandantelegraph@gmail.com';
 
   @override
   String get privacyPolicy => 'Privacy Policy';

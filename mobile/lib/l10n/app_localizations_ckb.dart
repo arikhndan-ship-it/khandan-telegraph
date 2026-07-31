@@ -239,7 +239,7 @@ class AppLocalizationsCkb extends AppLocalizations {
   String get readMoreAt => 'زیاتر بخوێنەوە لە خەندان تێڵیگراف';
 
   @override
-  String get secureEmailValue => 'khandatelegraph@gmail.com';
+  String get secureEmailValue => 'khandantelegraph@gmail.com';
 
   @override
   String get privacyPolicy => 'سیاسەتی تایبەتمەندی';

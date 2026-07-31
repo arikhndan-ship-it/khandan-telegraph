@@ -31,7 +31,7 @@ class _ContactScreenState extends State<ContactScreen> {
   }
 
   void _openUrl(String url) {
-    launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication).catchError((_) {});
+    launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication).catchError((_) => false);
   }
 
   Future<void> _submit() async {
@@ -241,7 +241,7 @@ class _ContactScreenState extends State<ContactScreen> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    _ContactTile(Icons.email, t.secureEmail, t.secureEmailValue, () => _openUrl('mailto:khandatelegraph@gmail.com')),
+                    _ContactTile(Icons.email, t.secureEmail, t.secureEmailValue, () => _openUrl('mailto:khandantelegraph@gmail.com')),
                     const SizedBox(height: 4),
                     _ContactTile(Icons.chat, t.telegram, t.telegramValue, () => _openUrl('https://t.me/khandantelegraph')),
                   ],
