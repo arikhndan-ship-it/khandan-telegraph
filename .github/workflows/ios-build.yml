@@ -182,6 +182,14 @@ jobs:
               else:
                   print("Saved cert import failed: %s" % r.stderr[-200:])
 
+          # Verify the identity is actually visible after import
+          if cert_imported:
+              r = subprocess.run('security find-identity -v -p codesigning', shell=True, capture_output=True, text=True)
+              print("Identities after saved-p12 import: %s" % r.stdout.strip() or "(none)")
+              if "iPhone Distribution" not in r.stdout:
+                  print("WARNING: identity not found after import, will re-import from CERT_DIR")
+                  cert_imported = False
+
           if not cert_imported:
               # Try to get cert. If Apple's distribution cert limit is hit,
               # revoke the orphaned certs (whose private keys were lost in
@@ -209,12 +217,14 @@ jobs:
                   shutil.copy2(p12_files[0], "/tmp/dist_cert.p12")
                   print("  Copied fastlane p12 %s to /tmp/dist_cert.p12" % os.path.basename(p12_files[0]))
 
-          # Create/refresh the dedicated keychain (fastlane used the default
-          # login keychain; import its certs into the dedicated one).
-          subprocess.run('security delete-keychain "%s" 2>/dev/null; true' % KC, shell=True)
-          subprocess.run('security create-keychain -p %s "%s"' % (KCPASS, KC), shell=True)
-          subprocess.run('security default-keychain -s "%s"' % KC, shell=True)
-          subprocess.run('security unlock-keychain -p %s "%s"' % (KCPASS, KC), shell=True)
+          # Create/refresh the dedicated keychain. In the saved-p12 path it
+          # was already created and populated above, so only do this when we
+          # went through fastlane cert (which used the default login keychain).
+          if not cert_imported:
+              subprocess.run('security delete-keychain "%s" 2>/dev/null; true' % KC, shell=True)
+              subprocess.run('security create-keychain -p %s "%s"' % (KCPASS, KC), shell=True)
+              subprocess.run('security default-keychain -s "%s"' % KC, shell=True)
+              subprocess.run('security unlock-keychain -p %s "%s"' % (KCPASS, KC), shell=True)
 
           # If a saved p12 exists, import it into the dedicated keychain too.
           if os.path.exists(saved_p12) and os.path.getsize(saved_p12) > 100 and not cert_imported:
