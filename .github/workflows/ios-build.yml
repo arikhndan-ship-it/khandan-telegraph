@@ -147,32 +147,30 @@ jobs:
 
           # Use a dedicated keychain with a known password so codesign never
           # hangs waiting for a keychain prompt.
-          KC = "~/Library/Keychains/ios-build.keychain-db"
+          KC = os.path.expanduser("~/Library/Keychains/ios-build.keychain-db")
           KCPASS = "khandan-build-keychain"
-          subprocess.run('security delete-keychain "%s" 2>/dev/null; true' % KC, shell=True)
-          subprocess.run('security create-keychain -p %s "%s"' % (KCPASS, KC), shell=True)
-          subprocess.run('security default-keychain -s "%s"' % KC, shell=True)
-          subprocess.run('security unlock-keychain -p %s "%s"' % (KCPASS, KC), shell=True)
 
           # Check if we have a saved p12 in secrets (check /tmp/saved_cert.p12)
           saved_p12 = "/tmp/saved_cert.p12"
           cert_imported = False
 
-          def import_p12(p12_path):
-              return subprocess.run(
-                  'security import "%s" -k "%s" -P "" -T /usr/bin/codesign -T /usr/bin/security -A' % (p12_path, KC),
-                  shell=True, capture_output=True, text=True
-              )
-
           if os.path.exists(saved_p12) and os.path.getsize(saved_p12) > 100:
               print("Found saved p12 cert, importing...")
-              r = import_p12(saved_p12)
+              # Create the dedicated keychain and import the saved cert into it.
+              subprocess.run('security delete-keychain "%s" 2>/dev/null; true' % KC, shell=True)
+              subprocess.run('security create-keychain -p %s "%s"' % (KCPASS, KC), shell=True)
+              subprocess.run('security default-keychain -s "%s"' % KC, shell=True)
+              subprocess.run('security unlock-keychain -p %s "%s"' % (KCPASS, KC), shell=True)
+              r = subprocess.run(
+                  'security import "%s" -k "%s" -P "" -T /usr/bin/codesign -T /usr/bin/security -A' % (saved_p12, KC),
+                  shell=True, capture_output=True, text=True
+              )
               if r.returncode == 0:
                   print("Saved cert imported successfully")
                   cert_imported = True
               else:
                   print("Saved cert import failed: %s" % r.stderr[-200:])
-          
+
           if not cert_imported:
               # Try to get cert. If Apple's distribution cert limit is hit,
               # revoke the orphaned certs (whose private keys were lost in
@@ -187,35 +185,36 @@ jobs:
                   except Exception as e:
                       print("  Revoke step error: %s" % e)
                   r = subprocess.run(base_cmd, shell=True, capture_output=True, text=True)
-              if r.returncode == 0:
-                  print("Cert created/downloaded")
-                  # fastlane saves the cert+p12 with the private key into CERT_DIR.
-                  # Copy the p12 (or the fastlane-exported p12) for future reuse.
-                  p12_files = [f for f in glob.glob("%s/*.p12" % CERT_DIR)]
-                  if p12_files:
-                      shutil.copy2(p12_files[0], "/tmp/dist_cert.p12")
-                      print("  Copied fastlane p12 %s to /tmp/dist_cert.p12" % os.path.basename(p12_files[0]))
-                  if not os.path.exists("/tmp/dist_cert.p12"):
-                      # Fallback: export the identity from the dedicated keychain
-                      r2 = subprocess.run(
-                          'security find-identity -v -p codesigning | grep "iPhone Distribution"',
-                          shell=True, capture_output=True, text=True
-                      )
-                      if r2.stdout:
-                          sha1 = r2.stdout.strip().split(" ")[1] if len(r2.stdout.strip().split(" ")) > 1 else ""
-                          if sha1:
-                              export_cmd = 'security export -k "%s" -t identities -f pkcs12 -P "" -o /tmp/dist_cert.p12 "%s"' % (KC, sha1)
-                              subprocess.run(export_cmd, shell=True, capture_output=True)
-                              if os.path.exists("/tmp/dist_cert.p12"):
-                                  print("  Cert exported to /tmp/dist_cert.p12")
-                  if not os.path.exists("/tmp/dist_cert.p12"):
-                      print("  WARNING: no p12 produced (dist_cert.p12 missing)")
-              else:
+              if r.returncode != 0:
                   print("Cert setup failed:")
                   for line in r.stderr.split('\n')[-5:]:
                       if line.strip(): print("  %s" % line[:200])
                   exit(1)
-          
+              print("Cert created/downloaded")
+              # fastlane saves the cert+p12 with the private key into CERT_DIR.
+              # Copy the p12 (or the fastlane-exported p12) for future reuse.
+              p12_files = [f for f in glob.glob("%s/*.p12" % CERT_DIR)]
+              if p12_files:
+                  shutil.copy2(p12_files[0], "/tmp/dist_cert.p12")
+                  print("  Copied fastlane p12 %s to /tmp/dist_cert.p12" % os.path.basename(p12_files[0]))
+
+          # Create/refresh the dedicated keychain (fastlane used the default
+          # login keychain; import its certs into the dedicated one).
+          subprocess.run('security delete-keychain "%s" 2>/dev/null; true' % KC, shell=True)
+          subprocess.run('security create-keychain -p %s "%s"' % (KCPASS, KC), shell=True)
+          subprocess.run('security default-keychain -s "%s"' % KC, shell=True)
+          subprocess.run('security unlock-keychain -p %s "%s"' % (KCPASS, KC), shell=True)
+
+          # If a saved p12 exists, import it into the dedicated keychain too.
+          if os.path.exists(saved_p12) and os.path.getsize(saved_p12) > 100 and not cert_imported:
+              r = subprocess.run(
+                  'security import "%s" -k "%s" -P "" -T /usr/bin/codesign -T /usr/bin/security -A' % (saved_p12, KC),
+                  shell=True, capture_output=True, text=True
+              )
+              if r.returncode == 0:
+                  print("Saved cert imported into dedicated keychain")
+                  cert_imported = True
+
           # 2. Unlock dedicated keychain and allow codesign access (prevents hangs)
           subprocess.run('security unlock-keychain -p %s "%s"' % (KCPASS, KC), shell=True)
           subprocess.run(
