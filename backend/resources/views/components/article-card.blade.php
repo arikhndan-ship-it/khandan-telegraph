@@ -15,12 +15,12 @@
 ])
 
 @php
-    $articleImage = $image ?? ($article->featured_image ?? ($article->image ?? null));
-    $articleCategory = $category ?? ($article->categories->first()->name ?? __('messages.cat_human_rights'));
-    $articleTitle = $title ?? ($article->title ?? '');
-    $articleExcerpt = $excerpt ?? ($article->excerpt ?? Str::limit(strip_tags($article->body ?? ''), 200));
+    $articleImage = $image ?? ($article?->featured_image ?? $article?->image ?? null);
+    $articleCategory = $category ?? ($article?->categories?->first()?->name) ?? __('messages.cat_human_rights');
+    $articleTitle = $title ?? ($article?->title ?? '');
+    $articleExcerpt = $excerpt ?? ($article?->excerpt ?? Str::limit(strip_tags($article?->body ?? ''), 200));
     $articleExcerpt = strip_tags($articleExcerpt);
-    $articleDate = $date ?? ($article->published_at ?? $article->created_at ?? now());
+    $articleDate = $date ?? ($article?->published_at ?? $article?->created_at ?? now());
     $articleRoute = $article ? route('articles.show', $article) : $slug;
     $formattedDate = $articleDate instanceof \Carbon\Carbon
         ? $articleDate->format('M d, Y')

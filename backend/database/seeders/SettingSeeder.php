@@ -16,8 +16,10 @@ class SettingSeeder extends Seeder
             ['key' => 'website_domain', 'value' => 'khandantelegraph.news', 'type' => 'text'],
             ['key' => 'telegram_url', 'value' => 'https://t.me/khandantelegraph', 'type' => 'text'],
             ['key' => 'telegram_username', 'value' => '@khandantelegraph', 'type' => 'text'],
-            ['key' => 'facebook_url', 'value' => 'https://www.facebook.com/share/194x5ECuH1/', 'type' => 'text'],
-            ['key' => 'contact_email', 'value' => 'contact@khandantelegraph.news', 'type' => 'text'],
+            ['key' => 'facebook_url', 'value' => 'https://www.facebook.com/share/1JbtCsmXzX/?mibextid=wwXIfr', 'type' => 'text'],
+            ['key' => 'contact_email', 'value' => 'khandantelegraph@gmail.com', 'type' => 'text'],
+            ['key' => 'minimum_app_version', 'value' => '0.0.8', 'type' => 'text'],
+            ['key' => 'update_url', 'value' => 'https://khandantelegraph.news/downloads/khandan.apk', 'type' => 'text'],
         ];
 
         foreach ($settings as $setting) {

@@ -6,6 +6,7 @@ on:
 jobs:
   build-ipa:
     runs-on: macos-latest
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: mobile
@@ -114,6 +115,12 @@ jobs:
           # 2. Unlock keychain
           subprocess.run('security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db', shell=True, capture_output=True)
           
+          # 2b. Allow codesign to access imported keys without UI prompts (prevents hangs)
+          subprocess.run(
+              'security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" ~/Library/Keychains/login.keychain-db',
+              shell=True, capture_output=True, text=True
+          )
+          
           # 3. Import any certs found in temp dir
           print("=== Importing certificates ===")
           for f in glob.glob("%s/*" % CERT_DIR):
@@ -182,14 +189,14 @@ jobs:
         run: flutter pub get
 
       - name: Build iOS (compile Dart)
-        timeout-minutes: 15
+        timeout-minutes: 25
         run: |
           export FLUTTER_FRONTEND_SERVER_MEMORY=4096
           echo "=== Building iOS (Dart compilation) ==="
           flutter build ios --release --no-codesign
 
       - name: Archive with signing
-        timeout-minutes: 15
+        timeout-minutes: 45
         run: |
           export PROFILE_NAME=$(cat build_profile_name.txt)
           echo "Profile: $PROFILE_NAME"
@@ -232,7 +239,7 @@ jobs:
             -archivePath build/ios/Runner.xcarchive
 
       - name: Export IPA
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: |
           echo "=== Creating ExportOptions.plist ==="
           cat > ios/ExportOptions.plist << 'PLIST'
