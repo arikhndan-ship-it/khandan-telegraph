@@ -231,12 +231,26 @@ jobs:
           print('pbxproj configured')
           PYEOF
           
+          echo "=== Unlocking keychain and allowing codesign access ==="
+          security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db || true
+          security unlock-keychain -p runner ~/Library/Keychains/login.keychain-db || true
+          security set-key-partition-list -S apple-tool:,apple:,codesign:,system: -s -k "" ~/Library/Keychains/login.keychain-db || true
+          security set-key-partition-list -S apple-tool:,apple:,codesign:,system: -s -k runner ~/Library/Keychains/login.keychain-db || true
+          security list-keychains -d user -s login.keychain-db
+          echo "=== Signing identities available ==="
+          security find-identity -v -p codesigning
+
           echo "=== Archiving ==="
           xcodebuild archive \
             -workspace ios/Runner.xcworkspace \
             -scheme Runner \
             -configuration Release \
-            -archivePath build/ios/Runner.xcarchive
+            -archivePath build/ios/Runner.xcarchive \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM=N6XDRH99C8 \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            CODE_SIGN_IDENTITY="iPhone Distribution"
 
       - name: Export IPA
         timeout-minutes: 20
