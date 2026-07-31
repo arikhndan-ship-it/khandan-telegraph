@@ -195,6 +195,12 @@ jobs:
                                   subprocess.run(export_cmd, shell=True, capture_output=True)
                                   if os.path.exists("/tmp/dist_cert.p12"):
                                       print("  Cert exported to /tmp/dist_cert.p12")
+                      elif fn.endswith(".p12") and not os.path.exists("/tmp/dist_cert.p12"):
+                          # fastlane saved the p12 directly (contains private key) - use it
+                          shutil.copy2(f, "/tmp/dist_cert.p12")
+                          print("  Copied fastlane p12 %s to /tmp/dist_cert.p12" % fn)
+                  if not os.path.exists("/tmp/dist_cert.p12"):
+                      print("  WARNING: no p12 produced (dist_cert.p12 missing)")
               else:
                   print("Cert setup failed:")
                   for line in r.stderr.split('\n')[-5:]:
