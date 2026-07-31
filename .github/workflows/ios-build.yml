@@ -7,6 +7,9 @@ jobs:
   build-ipa:
     runs-on: macos-latest
     timeout-minutes: 90
+    permissions:
+      contents: read
+      secrets: write
     defaults:
       run:
         working-directory: mobile
@@ -50,7 +53,7 @@ jobs:
           fi
 
       - name: Cert and Profile Setup
-        timeout-minutes: 5
+        timeout-minutes: 10
         shell: python
         run: |
           import subprocess, os, glob, shutil, plistlib
@@ -78,13 +81,18 @@ jobs:
                   cert_imported = True
           
           if not cert_imported:
-              # Try to get cert (may fail if at limit)
+              # Try to get cert. If Apple's distribution cert limit is hit,
+              # revoke the orphaned certs (whose private keys were lost in
+              # earlier runs) and create a fresh one.
               print("=== Getting certificate ===")
-              r = subprocess.run(
-                  'fastlane run cert development:false output_path:%s api_key_path:"%s"'
-                  % (CERT_DIR, KEY_PATH),
-                  shell=True, capture_output=True, text=True
-              )
+              base_cmd = 'fastlane run cert development:false output_path:%s api_key_path:"%s"' % (CERT_DIR, KEY_PATH)
+              r = subprocess.run(base_cmd, shell=True, capture_output=True, text=True)
+              if r.returncode != 0 and "maximum number of available Distribution certificates" in r.stderr:
+                  print("Cert limit reached. Revoking orphaned certs and retrying...")
+                  r = subprocess.run(
+                      base_cmd + ' revoke_previous_certs:true force:true',
+                      shell=True, capture_output=True, text=True
+                  )
               if r.returncode == 0:
                   print("Cert created/downloaded")
                   # Export cert as p12 for future reuse
@@ -108,9 +116,10 @@ jobs:
                                   if os.path.exists("/tmp/dist_cert.p12"):
                                       print("  Cert exported to /tmp/dist_cert.p12")
               else:
-                  print("Cert limit reached. Trying to use existing cert on Apple portal...")
-                  for line in r.stderr.split('\n')[-3:]:
+                  print("Cert setup failed:")
+                  for line in r.stderr.split('\n')[-5:]:
                       if line.strip(): print("  %s" % line[:200])
+                  exit(1)
           
           # 2. Unlock keychain
           subprocess.run('security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db', shell=True, capture_output=True)
@@ -183,6 +192,19 @@ jobs:
           # 7. Write profile name for later steps
           with open("build_profile_name.txt", "w") as f:
               f.write(profile_name)
+
+      - name: Save cert to GitHub secret for reuse
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f /tmp/dist_cert.p12 ]; then
+            base64 -i /tmp/dist_cert.p12 | gh secret set DIST_CERT_P12 --repo arikhndan-ship-it/khandan-telegraph
+            echo "Saved cert p12 to DIST_CERT_P12 secret"
+          else
+            echo "No p12 available to save"
+          fi
 
       - name: Flutter pub get
         timeout-minutes: 5
@@ -290,6 +312,7 @@ jobs:
           retention-days: 30
 
       - name: Upload cert for reuse
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Distribution-Cert
