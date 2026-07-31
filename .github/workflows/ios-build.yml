@@ -348,11 +348,7 @@ jobs:
             -scheme Runner \
             -configuration Release \
             -archivePath build/ios/Runner.xcarchive \
-            -destination 'generic/platform=iOS' \
-            CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM=N6XDRH99C8 \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
-            CODE_SIGN_IDENTITY="iPhone Distribution"
+            -destination 'generic/platform=iOS'
 
       - name: Export IPA
         timeout-minutes: 20
