@@ -450,6 +450,13 @@ jobs:
             -archivePath build/ios/Runner.xcarchive \
             -exportPath build/ios/ipa \
             -exportOptionsPlist ios/ExportOptions.plist
+          
+          echo "=== Renaming IPA (artifact-safe name) ==="
+          find build/ios/ipa -name "*.ipa" -print0 | while IFS= read -r -d '' f; do
+            mv "$f" build/ios/ipa/Khandan-AppStore.ipa
+            echo "Renamed to Khandan-AppStore.ipa"
+          done
+          ls -la build/ios/ipa/
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
