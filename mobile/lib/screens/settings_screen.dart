@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../app/theme.dart';
 import 'package:khandan_app/l10n/app_localizations.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class SettingsScreen extends StatefulWidget {
   final void Function(Locale locale)? onLocaleChanged;
@@ -17,6 +18,21 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   Locale _currentLocale = const Locale('ckb');
+  String _appVersion = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAppVersion();
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      setState(() => _appVersion = info.version);
+    } catch (_) {}
+  }
 
   @override
   void didChangeDependencies() {
@@ -93,7 +109,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             leading: const Icon(Icons.info_outline, color: AppTheme.primaryColor),
             title: Text(l10n.about,
               style: const TextStyle(color: Colors.white)),
-            subtitle: Text('${l10n.version}: 1.0.0',
+            subtitle: Text('${l10n.version}: ${_appVersion.isEmpty ? '1.0.0' : _appVersion}',
               style: const TextStyle(color: AppTheme.textGray)),
           ),
         ),

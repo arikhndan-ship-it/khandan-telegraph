@@ -39,8 +39,8 @@ Outputs:
 
 ## Release notes
 
-- Update `version` in `pubspec.yaml` (e.g. `0.0.9+10`)
-- Bump `versionCode`/`versionName` in `android/app/build.gradle.kts`
+- Update `version` in `pubspec.yaml` (e.g. `1.0.0+10`)
+- `android/app/build.gradle.kts` reads `versionCode`/`versionName` from pubspec automatically
 - Publish the APK to `https://khandantelegraph.news/downloads/khandan.apk`
 - Update `minimum_app_version` in the admin panel (`/panel-khandan` → System → App Update)
 
